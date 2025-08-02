@@ -1,5 +1,4 @@
-import 'dotenv/config'
-import Sdk from '@1inch/cross-chain-sdk'
+import * as Sdk from '@1inch/cross-chain-sdk'
 import {
     computeAddress,
     ContractFactory,
@@ -12,39 +11,33 @@ import {
 } from 'ethers'
 import { uint8ArrayToHex, UINT_40_MAX } from '@1inch/byte-utils'
 import { ethers } from 'ethers'
+import { hash, getChecksumAddress } from 'starknet'
 
 const { Address } = Sdk
+
+import dotenv from 'dotenv'
+dotenv.config({})
 
 // OP 链配置
 const OP_CONFIG = {
     chainId: 10,
-    url: process.env.OP_RPC_URL || 'https://mainnet.optimism.io',
+    url: 'https://optimism-mainnet.public.blastapi.io',
     limitOrderProtocol: '0x111111125421cA6dc452d289314280a0f8842A65', // 1inch LOP on OP
     wrappedNative: '0x4200000000000000000000000000000000000006', // WETH on OP
-    tokens: {
-        USDC: {
-            address: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85', // USDC on OP
-            donor: '0x625E7708f30cA75bfd92586e17077590C60eb4cD' // Rich USDC holder on OP
-        }
-    },
-    ownerPrivateKey: process.env.DEPLOYER_PRIVATE_KEY || '0x0000000000000000000000000000000000000000000000000000000000000001'
 }
 
 // Starknet 配置 - 使用chainId 99999表示非EVM链
 const STARKNET_CONFIG = {
     chainId: 99999, // 非EVM链标识
     realChainId: 'SN_MAIN', // Starknet主网
-    tokens: {
-        USDC: {
-            // Starknet USDC地址（需要转换为felt格式）
-            address: '0x053c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8'
-        }
-    }
+    rpcUrl: 'https://starknet-mainnet.public.blastapi.io/rpc/v0_7' // Starknet RPC URL
 }
 
 // 用户和解析器私钥
-const USER_PRIVATE_KEY = process.env.USER_PRIVATE_KEY || '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d'
-const RESOLVER_PRIVATE_KEY = process.env.RESOLVER_PRIVATE_KEY || '0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a'
+const USER_PRIVATE_KEY = process.env.PRIVATE_KEY_EVM_USER
+const RESOLVER_PRIVATE_KEY = process.env.PRIVATE_KEY_EVM_RESOLVER
+
+
 
 export class OpToStarknetSwap {
     private opProvider: JsonRpcProvider
@@ -54,40 +47,70 @@ export class OpToStarknetSwap {
     private resolver: string
 
     constructor() {
+
+
         this.opProvider = new JsonRpcProvider(OP_CONFIG.url, OP_CONFIG.chainId, {
             cacheTimeout: -1,
             staticNetwork: true
         })
         
-        this.userWallet = new SignerWallet(USER_PRIVATE_KEY, this.opProvider)
-        this.resolverWallet = new SignerWallet(RESOLVER_PRIVATE_KEY, this.opProvider)
+        this.userWallet = new SignerWallet(USER_PRIVATE_KEY as string, this.opProvider)
+        this.resolverWallet = new SignerWallet(RESOLVER_PRIVATE_KEY as string, this.opProvider)
         
         // 这些地址需要预先部署
-        this.escrowFactory = process.env.OP_ESCROW_FACTORY || ''
-        this.resolver = process.env.OP_RESOLVER || ''
+        this.escrowFactory =  '0xa7bCb4EAc8964306F9e3764f67Db6A7af6DdF99A'
+        this.resolver = '0x55e723eE06b4bF69734EDe8e4d0CC443D85BDF93'
     }
 
-    async swapOpUsdcToStarknetUsdc(
-        makingAmount: bigint, // OP USDC amount (6 decimals)
-        takingAmount: bigint, // Starknet USDC amount (6 decimals) 
-        starknetUserAddress: string, // Starknet用户地址
+
+
+    async swapTokens(
+        srcTokenAddress: string,      // 源链token地址
+        dstTokenAddress: string,      // 目标链token地址
+        makingAmount: number,         // 源token数量（整数）
+        takingAmount: number,         // 目标token数量（整数）
+        starknetUserAddress: string,  // Starknet用户地址
         starknetResolverAddress: string // Starknet解析器地址
     ) {
-        console.log('🚀 开始 OP USDC -> Starknet USDC 跨链交换')
-        console.log(`交换金额: ${makingAmount} OP USDC -> ${takingAmount} Starknet USDC`)
+        console.log('🚀 开始跨链token交换')
+        console.log(`源token: ${srcTokenAddress}`)
+        console.log(`目标token: ${dstTokenAddress}`)
+        console.log(`交换金额: ${makingAmount} -> ${takingAmount}`)
 
-        // 1. 检查余额和授权
-        await this.checkAndApproveTokens(makingAmount)
+        // 2. 转换金额
+        const makingAmountBig = parseUnits(makingAmount.toString(), 18)
+        const takingAmountBig = parseUnits(takingAmount.toString(), 18)
 
-        // 2. 创建跨链订单
+        console.log(`实际金额: ${makingAmountBig} (${18} decimals) -> ${takingAmountBig} (${18} decimals)`)
+
+        // 3. 检查余额和授权
+        await this.checkAndApproveTokens(srcTokenAddress, makingAmountBig)
+
+        // 4. 创建跨链订单
         const secret = uint8ArrayToHex(randomBytes(31))
-        const order = await this.createCrossChainOrder(makingAmount, takingAmount, secret, starknetUserAddress, starknetResolverAddress)
+        const order = await this.createCrossChainOrder(
+            srcTokenAddress,
+            dstTokenAddress,
+            makingAmountBig, 
+            takingAmountBig, 
+            secret, 
+            starknetUserAddress, 
+            starknetResolverAddress
+        )
 
-        // 3. 签名订单
-        const signature = await this.userWallet.signMessage(ethers.getBytes(order.getOrderHash(OP_CONFIG.chainId)))
+        // 5. 签名订单
+        const typedData = order.getTypedData(OP_CONFIG.chainId)
+        const signature = await this.userWallet.signTypedData(
+            typedData.domain,
+            {Order: typedData.types[typedData.primaryType]},
+            typedData.message
+        )
         console.log('📝 订单已签名:', signature)
 
-        // 4. 提交订单给解析器
+        const orderHash = order.getOrderHash(OP_CONFIG.chainId)
+        console.log('📝 订单哈希:', orderHash)
+
+        // 6. 提交订单给解析器
         console.log('📤 提交订单给解析器...')
         // 这里应该调用解析器的API或合约方法来处理订单
         // 实际实现中，解析器会：
@@ -103,6 +126,8 @@ export class OpToStarknetSwap {
     }
 
     private async createCrossChainOrder(
+        srcTokenAddress: string,
+        dstTokenAddress: string,
         makingAmount: bigint,
         takingAmount: bigint, 
         secret: string,
@@ -118,11 +143,11 @@ export class OpToStarknetSwap {
                 maker: new Address(await this.userWallet.getAddress()),
                 makingAmount,
                 takingAmount,
-                makerAsset: new Address(OP_CONFIG.tokens.USDC.address),
-                takerAsset: new Address(STARKNET_CONFIG.tokens.USDC.address)
+                makerAsset: new Address(srcTokenAddress),
+                takerAsset: new Address('0x0000000000000000000000000000000000000000')
             },
             {
-                hashLock: Sdk.HashLock.forSingleFill(secret),
+                hashLock: Sdk.HashLock.forSingleFill(secret+'00'),
                 timeLocks: Sdk.TimeLocks.new({
                     srcWithdrawal: 600n, // 10分钟最终性锁定
                     srcPublicWithdrawal: 7200n, // 2小时私人提取
@@ -133,9 +158,9 @@ export class OpToStarknetSwap {
                     dstCancellation: 6060n // 1分钟公共提取
                 }),
                 srcChainId: OP_CONFIG.chainId,
-                dstChainId: STARKNET_CONFIG.chainId,
-                srcSafetyDeposit: parseEther('0.01'), // 0.01 ETH
-                dstSafetyDeposit: parseEther('0.01') // 0.01 ETH等值
+                dstChainId: 1,
+                srcSafetyDeposit: parseEther('0'), // 0.01 ETH
+                dstSafetyDeposit: parseEther('0') // 0.01 ETH等值
             },
             {
                 auction: new Sdk.AuctionDetails({
@@ -167,8 +192,10 @@ export class OpToStarknetSwap {
         // 设置Starknet链ID
         order.inner.escrowExtension.dstChainId = STARKNET_CONFIG.chainId
 
+        let starkentHashlock = '0x' + hash.computePoseidonHashOnElements([secret]).slice(2).padStart(64, '0')
+
         // 将Starknet地址编码到customData中
-        const customData = this.encodeStarknetAddresses(starknetUserAddress, starknetResolverAddress)
+        const customData = this.encodeCustomData(getChecksumAddress(starknetUserAddress), getChecksumAddress(dstTokenAddress), starkentHashlock)
         order.inner.inner.extension.customData = customData
 
         // 重新计算salt
@@ -181,6 +208,8 @@ export class OpToStarknetSwap {
             orderHash: order.getOrderHash(OP_CONFIG.chainId),
             makingAmount: makingAmount.toString(),
             takingAmount: takingAmount.toString(),
+            srcToken: srcTokenAddress,
+            dstToken: dstTokenAddress,
             srcChain: 'Optimism',
             dstChain: 'Starknet'
         })
@@ -188,55 +217,63 @@ export class OpToStarknetSwap {
         return order
     }
 
-    private encodeStarknetAddresses(userAddress: string, resolverAddress: string): string {
-        // 将Starknet地址编码为customData
-        // 移除0x前缀并确保地址长度正确
-        const cleanUserAddr = userAddress.replace('0x', '').padStart(64, '0')
-        const cleanResolverAddr = resolverAddress.replace('0x', '').padStart(64, '0')
-        
-        return '0x' + cleanUserAddr + cleanResolverAddr
+    private encodeCustomData(receiver: string, asset: string, hashLock: string): string {
+        // 去掉0x再拼接
+        const r = receiver.replace(/^0x/, '');
+        const a = asset.replace(/^0x/, '');
+        const h = hashLock.replace(/^0x/, '');
+
+        // 拼成一长串 hex
+        return '0x' + r + a + h;
     }
 
-    private async checkAndApproveTokens(amount: bigint) {
-        const usdcContract = new ethers.Contract(
-            OP_CONFIG.tokens.USDC.address,
-            ['function balanceOf(address) view returns (uint256)', 'function approve(address,uint256) returns (bool)'],
+    private async checkAndApproveTokens(tokenAddress: string, amount: bigint) {
+        const tokenContract = new ethers.Contract(
+            tokenAddress,
+            [
+                'function balanceOf(address) view returns (uint256)', 
+                'function approve(address,uint256) returns (bool)',
+                'function allowance(address,address) view returns (uint256)'
+            ],
             this.userWallet
         )
 
-        const balance = await usdcContract.balanceOf(await this.userWallet.getAddress())
-        console.log(`💰 当前USDC余额: ${balance} (需要: ${amount})`)
+        const userAddress = await this.userWallet.getAddress()
+        const balance = await tokenContract.balanceOf(userAddress)
+        console.log(`💰 当前token余额: ${balance} (需要: ${amount})`)
 
         if (balance < amount) {
-            throw new Error(`USDC余额不足! 当前: ${balance}, 需要: ${amount}`)
+            throw new Error(`token余额不足! 当前: ${balance}, 需要: ${amount}`)
         }
 
         // 检查授权
-        const allowance = await usdcContract.allowance(
-            await this.userWallet.getAddress(),
-            OP_CONFIG.limitOrderProtocol
-        )
+        const allowance = await tokenContract.allowance(userAddress, OP_CONFIG.limitOrderProtocol)
 
         if (allowance < amount) {
-            console.log('🔓 授权USDC给1inch限价订单协议...')
-            const approveTx = await usdcContract.approve(OP_CONFIG.limitOrderProtocol, MaxUint256)
+            console.log('🔓 授权token给1inch限价订单协议...')
+            const approveTx = await tokenContract.approve(OP_CONFIG.limitOrderProtocol, MaxUint256)
             await approveTx.wait()
-            console.log('✅ USDC授权成功')
+            console.log('✅ token授权成功')
         }
     }
+
 }
 
 // 主函数
 async function main() {
     try {
+
+        console.log('USER_PRIVATE_KEY', USER_PRIVATE_KEY)
         const swapper = new OpToStarknetSwap()
         
         // 示例：交换100 OP USDC -> 99 Starknet USDC
-        const result = await swapper.swapOpUsdcToStarknetUsdc(
-            parseUnits('100', 6), // 100 USDC
-            parseUnits('99', 6),  // 99 USDC (考虑费用)
-            '0x047578c716eb4724097f9ca85e30997a4655b0ce44f9259e19e6fd81bb7a72b8', // Starknet用户地址
-            '0x047578c716eb4724097f9ca85e30997a4655b0ce44f9259e19e6fd81bb7a72b9'  // Starknet解析器地址
+        const result = await swapper.swapTokens(
+            '0x722d3c28fadCee0f1070C12C4d47F20DB5bfE82B', // OP stFusion
+            '0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d', // Starknet strk
+            100, // 100 stFusion
+            10,  // 10 strk
+            '0x060684D67EE65A3C3C41932cAeAD3d6B19c0738390d24924f172FFB416Cef3ae', // Starknet user address
+            '0x047578c716eb4724097f9ca85e30997a4655b0ce44f9259e19e6fd81bb7a72b9'  // Starknet resolver ??
         )
 
         console.log('🎉 交换订单创建成功!')
@@ -249,8 +286,6 @@ async function main() {
     }
 }
 
-if (require.main === module) {
-    main()
-}
+await main()
 
 export default OpToStarknetSwap

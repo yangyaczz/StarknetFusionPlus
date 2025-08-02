@@ -2,9 +2,11 @@
   "name": "cross-chain-resolver-example",
   "version": "1.0.0",
   "description": "Example of 1inch cross chain resolver",
+  "type": "module",
   "scripts": {
     "test": "forge build && node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
-    "lint": "eslint  \"tests/**/*.ts\""
+    "lint": "eslint  \"tests/**/*.ts\"",
+    "swap": "tsx scripts/swap-op-to-starknet.ts" 
   },
   "devDependencies": {
     "@1inch/eslint-config": "^v3.0.7",
@@ -30,6 +32,7 @@
     "eslint-plugin-unused-imports": "^4.1.4",
     "jest": "29.7.0",
     "prettier": "^3.2.5",
+    "tsx": "^4.20.3",
     "typescript": "5.5.2",
     "zod": "3.23.8"
   },
