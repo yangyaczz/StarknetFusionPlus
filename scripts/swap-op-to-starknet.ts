@@ -7,14 +7,14 @@ import {
     parseEther,
     parseUnits,
     randomBytes,
-    Wallet as SignerWallet
 } from 'ethers'
 import { uint8ArrayToHex, UINT_40_MAX } from '@1inch/byte-utils'
 import { ethers } from 'ethers'
 import { hash, getChecksumAddress } from 'starknet'
+import { Wallet } from './wallet'
 
 const { Address } = Sdk
-
+import { ResolverEVM } from './resolverevm'
 import dotenv from 'dotenv'
 dotenv.config({})
 
@@ -41,8 +41,8 @@ const RESOLVER_PRIVATE_KEY = process.env.PRIVATE_KEY_EVM_RESOLVER
 
 export class OpToStarknetSwap {
     private opProvider: JsonRpcProvider
-    private userWallet: SignerWallet
-    private resolverWallet: SignerWallet
+    private userWallet: Wallet
+    private resolverWallet: Wallet
     private escrowFactory: string
     private resolver: string
 
@@ -53,12 +53,12 @@ export class OpToStarknetSwap {
             cacheTimeout: -1,
             staticNetwork: true
         })
-        
-        this.userWallet = new SignerWallet(USER_PRIVATE_KEY as string, this.opProvider)
-        this.resolverWallet = new SignerWallet(RESOLVER_PRIVATE_KEY as string, this.opProvider)
-        
+
+        this.userWallet = new Wallet(USER_PRIVATE_KEY as string, this.opProvider)
+        this.resolverWallet = new Wallet(RESOLVER_PRIVATE_KEY as string, this.opProvider)
+
         // 这些地址需要预先部署
-        this.escrowFactory =  '0xa7bCb4EAc8964306F9e3764f67Db6A7af6DdF99A'
+        this.escrowFactory = '0xa7bCb4EAc8964306F9e3764f67Db6A7af6DdF99A'
         this.resolver = '0x55e723eE06b4bF69734EDe8e4d0CC443D85BDF93'
     }
 
@@ -91,20 +91,15 @@ export class OpToStarknetSwap {
         const order = await this.createCrossChainOrder(
             srcTokenAddress,
             dstTokenAddress,
-            makingAmountBig, 
-            takingAmountBig, 
-            secret, 
-            starknetUserAddress, 
+            makingAmountBig,
+            takingAmountBig,
+            secret,
+            starknetUserAddress,
             starknetResolverAddress
         )
 
         // 5. 签名订单
-        const typedData = order.getTypedData(OP_CONFIG.chainId)
-        const signature = await this.userWallet.signTypedData(
-            typedData.domain,
-            {Order: typedData.types[typedData.primaryType]},
-            typedData.message
-        )
+        const signature = await this.userWallet.signOrder(OP_CONFIG.chainId, order)
         console.log('📝 订单已签名:', signature)
 
         const orderHash = order.getOrderHash(OP_CONFIG.chainId)
@@ -118,6 +113,33 @@ export class OpToStarknetSwap {
         // - 在Starknet上创建目标escrow  
         // - 处理资金交换
 
+
+
+        const resolverSrc = new ResolverEVM(this.resolver, this.resolver)
+
+        const fillAmount = order.makingAmount
+
+        // 创建src escrow
+        const { txHash: orderFillHash, blockHash: srcDeployBlock } = await this.resolverWallet.send(
+            resolverSrc.deploySrc(
+                OP_CONFIG.chainId,
+                order,
+                signature,
+                Sdk.TakerTraits.default()
+                    .setExtension(order.extension)
+                    .setAmountMode(Sdk.AmountMode.maker)
+                    .setAmountThreshold(order.takingAmount),
+                fillAmount
+            )
+        )
+
+        console.log(`[${OP_CONFIG.chainId}]`, `Order ${orderHash} filled for ${fillAmount} in tx ${orderFillHash}`)
+
+
+
+
+
+
         return {
             orderHash: order.getOrderHash(OP_CONFIG.chainId),
             secret,
@@ -129,7 +151,7 @@ export class OpToStarknetSwap {
         srcTokenAddress: string,
         dstTokenAddress: string,
         makingAmount: bigint,
-        takingAmount: bigint, 
+        takingAmount: bigint,
         secret: string,
         starknetUserAddress: string,
         starknetResolverAddress: string
@@ -147,7 +169,7 @@ export class OpToStarknetSwap {
                 takerAsset: new Address('0x0000000000000000000000000000000000000000')
             },
             {
-                hashLock: Sdk.HashLock.forSingleFill(secret+'00'),
+                hashLock: Sdk.HashLock.forSingleFill(secret + '00'),
                 timeLocks: Sdk.TimeLocks.new({
                     srcWithdrawal: 600n, // 10分钟最终性锁定
                     srcPublicWithdrawal: 7200n, // 2小时私人提取
@@ -231,7 +253,7 @@ export class OpToStarknetSwap {
         const tokenContract = new ethers.Contract(
             tokenAddress,
             [
-                'function balanceOf(address) view returns (uint256)', 
+                'function balanceOf(address) view returns (uint256)',
                 'function approve(address,uint256) returns (bool)',
                 'function allowance(address,address) view returns (uint256)'
             ],
@@ -265,7 +287,7 @@ async function main() {
 
         console.log('USER_PRIVATE_KEY', USER_PRIVATE_KEY)
         const swapper = new OpToStarknetSwap()
-        
+
         // 示例：交换100 OP USDC -> 99 Starknet USDC
         const result = await swapper.swapTokens(
             '0x722d3c28fadCee0f1070C12C4d47F20DB5bfE82B', // OP stFusion
@@ -279,7 +301,7 @@ async function main() {
         console.log('🎉 交换订单创建成功!')
         console.log('订单哈希:', result.orderHash)
         console.log('密钥:', result.secret)
-        
+
     } catch (error) {
         console.error('❌ 交换失败:', error)
         process.exit(1)
