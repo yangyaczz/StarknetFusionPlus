@@ -13,6 +13,8 @@ import { ethers } from 'ethers'
 import { hash, getChecksumAddress } from 'starknet'
 import { Wallet } from './wallet'
 
+import { EscrowFactory } from './escrow-factory'
+
 const { Address } = Sdk
 import { ResolverEVM } from './resolverevm'
 import dotenv from 'dotenv'
@@ -21,7 +23,7 @@ dotenv.config({})
 // OP 链配置
 const OP_CONFIG = {
     chainId: 10,
-    url: 'https://optimism-mainnet.public.blastapi.io',
+    url: 'https://optimism-mainnet.blastapi.io/7153c233-d0cf-4ce5-997a-1d57f71635b6',
     limitOrderProtocol: '0x111111125421cA6dc452d289314280a0f8842A65', // 1inch LOP on OP
     wrappedNative: '0x4200000000000000000000000000000000000006', // WETH on OP
 }
@@ -107,13 +109,6 @@ export class OpToStarknetSwap {
 
         // 6. 提交订单给解析器
         console.log('📤 提交订单给解析器...')
-        // 这里应该调用解析器的API或合约方法来处理订单
-        // 实际实现中，解析器会：
-        // - 在OP链上创建源escrow
-        // - 在Starknet上创建目标escrow  
-        // - 处理资金交换
-
-
 
         const resolverSrc = new ResolverEVM(this.resolver, this.resolver)
 
@@ -136,6 +131,28 @@ export class OpToStarknetSwap {
         console.log(`[${OP_CONFIG.chainId}]`, `Order ${orderHash} filled for ${fillAmount} in tx ${orderFillHash}`)
 
 
+        // get src escrow address and event
+
+        let opFactory = new EscrowFactory(this.opProvider, this.escrowFactory)
+
+        const srcEscrowEvent = await opFactory.getSrcDeployEvent(srcDeployBlock)
+
+        const dstImmutables = srcEscrowEvent[0]
+        const srcCancellation =  dstImmutables.timeLocks.toSrcTimeLocks().privateCancellation
+
+
+        const ESCROW_SRC_IMPLEMENTATION = await opFactory.getSourceImpl()
+        const srcEscrowAddress = new Sdk.EscrowFactory(new Address(this.escrowFactory)).getSrcEscrowAddress(
+            srcEscrowEvent[0],
+            ESCROW_SRC_IMPLEMENTATION
+        )
+
+
+        // wait for 11 seconds
+        await new Promise(resolve => setTimeout(resolve, 11000))
+        const { txHash: resolverWithdrawHash } = await this.resolverWallet.send(
+            resolverSrc.withdraw('src', srcEscrowAddress, secret+ '00', srcEscrowEvent[0])
+        )
 
 
 
@@ -171,13 +188,13 @@ export class OpToStarknetSwap {
             {
                 hashLock: Sdk.HashLock.forSingleFill(secret + '00'),
                 timeLocks: Sdk.TimeLocks.new({
-                    srcWithdrawal: 600n, // 10分钟最终性锁定
-                    srcPublicWithdrawal: 7200n, // 2小时私人提取
-                    srcCancellation: 7260n, // 1分钟公共提取
-                    srcPublicCancellation: 7320n, // 1分钟私人取消
-                    dstWithdrawal: 600n, // 10分钟最终性锁定
-                    dstPublicWithdrawal: 6000n, // 100分钟私人提取
-                    dstCancellation: 6060n // 1分钟公共提取
+                    srcWithdrawal: 10n, // 10分钟最终性锁定
+                    srcPublicWithdrawal: 120n, // 2小时私人提取
+                    srcCancellation: 121n, // 1分钟公共提取
+                    srcPublicCancellation: 122n, // 1分钟私人取消
+                    dstWithdrawal: 10n, // 10分钟最终性锁定
+                    dstPublicWithdrawal: 100n, // 100分钟私人提取
+                    dstCancellation: 101n // 1分钟公共提取
                 }),
                 srcChainId: OP_CONFIG.chainId,
                 dstChainId: 1,

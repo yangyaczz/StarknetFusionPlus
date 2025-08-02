@@ -1,0 +1,269 @@
+[
+    {
+        "type": "impl",
+        "name": "Resolver",
+        "interface_name": "contracts::Resolver::IResolver"
+    },
+    {
+        "type": "struct",
+        "name": "core::integer::u256",
+        "members": [
+            {
+                "name": "low",
+                "type": "core::integer::u128"
+            },
+            {
+                "name": "high",
+                "type": "core::integer::u128"
+            }
+        ]
+    },
+    {
+        "type": "struct",
+        "name": "contracts::objects::Timelocks",
+        "members": [
+            {
+                "name": "deployed_at",
+                "type": "core::integer::u64"
+            },
+            {
+                "name": "src_withdrawal",
+                "type": "core::integer::u64"
+            },
+            {
+                "name": "src_public_withdrawal",
+                "type": "core::integer::u64"
+            },
+            {
+                "name": "src_cancellation",
+                "type": "core::integer::u64"
+            },
+            {
+                "name": "src_public_cancellation",
+                "type": "core::integer::u64"
+            },
+            {
+                "name": "dst_withdrawal",
+                "type": "core::integer::u64"
+            },
+            {
+                "name": "dst_public_withdrawal",
+                "type": "core::integer::u64"
+            },
+            {
+                "name": "dst_cancellation",
+                "type": "core::integer::u64"
+            }
+        ]
+    },
+    {
+        "type": "struct",
+        "name": "contracts::objects::Immutables",
+        "members": [
+            {
+                "name": "order_hash",
+                "type": "core::felt252"
+            },
+            {
+                "name": "hash_lock",
+                "type": "core::felt252"
+            },
+            {
+                "name": "maker",
+                "type": "core::starknet::contract_address::ContractAddress"
+            },
+            {
+                "name": "taker",
+                "type": "core::starknet::contract_address::ContractAddress"
+            },
+            {
+                "name": "token",
+                "type": "core::starknet::contract_address::ContractAddress"
+            },
+            {
+                "name": "amount",
+                "type": "core::integer::u256"
+            },
+            {
+                "name": "safety_deposit",
+                "type": "core::integer::u256"
+            },
+            {
+                "name": "timelocks",
+                "type": "contracts::objects::Timelocks"
+            }
+        ]
+    },
+    {
+        "type": "struct",
+        "name": "contracts::objects::Order",
+        "members": [
+            {
+                "name": "salt",
+                "type": "core::felt252"
+            },
+            {
+                "name": "maker",
+                "type": "core::starknet::contract_address::ContractAddress"
+            },
+            {
+                "name": "receiver",
+                "type": "core::starknet::contract_address::ContractAddress"
+            },
+            {
+                "name": "maker_asset",
+                "type": "core::starknet::contract_address::ContractAddress"
+            },
+            {
+                "name": "taker_asset",
+                "type": "core::starknet::contract_address::ContractAddress"
+            },
+            {
+                "name": "making_amount",
+                "type": "core::integer::u256"
+            },
+            {
+                "name": "taking_amount",
+                "type": "core::integer::u256"
+            }
+        ]
+    },
+    {
+        "type": "interface",
+        "name": "contracts::Resolver::IResolver",
+        "items": [
+            {
+                "type": "function",
+                "name": "deploy_src",
+                "inputs": [
+                    {
+                        "name": "immutables",
+                        "type": "contracts::objects::Immutables"
+                    },
+                    {
+                        "name": "order",
+                        "type": "contracts::objects::Order"
+                    },
+                    {
+                        "name": "signature",
+                        "type": "core::felt252"
+                    }
+                ],
+                "outputs": [],
+                "state_mutability": "external"
+            },
+            {
+                "type": "function",
+                "name": "deploy_dst",
+                "inputs": [
+                    {
+                        "name": "immutables",
+                        "type": "contracts::objects::Immutables"
+                    },
+                    {
+                        "name": "src_cancellation_timestamp",
+                        "type": "core::integer::u64"
+                    }
+                ],
+                "outputs": [],
+                "state_mutability": "external"
+            },
+            {
+                "type": "function",
+                "name": "withdraw_src",
+                "inputs": [
+                    {
+                        "name": "escrow",
+                        "type": "core::starknet::contract_address::ContractAddress"
+                    },
+                    {
+                        "name": "secret",
+                        "type": "core::felt252"
+                    },
+                    {
+                        "name": "immutables",
+                        "type": "contracts::objects::Immutables"
+                    }
+                ],
+                "outputs": [],
+                "state_mutability": "external"
+            },
+            {
+                "type": "function",
+                "name": "withdraw_dst",
+                "inputs": [
+                    {
+                        "name": "escrow",
+                        "type": "core::starknet::contract_address::ContractAddress"
+                    },
+                    {
+                        "name": "secret",
+                        "type": "core::felt252"
+                    },
+                    {
+                        "name": "immutables",
+                        "type": "contracts::objects::Immutables"
+                    }
+                ],
+                "outputs": [],
+                "state_mutability": "external"
+            },
+            {
+                "type": "function",
+                "name": "cancel_src",
+                "inputs": [
+                    {
+                        "name": "escrow",
+                        "type": "core::starknet::contract_address::ContractAddress"
+                    },
+                    {
+                        "name": "immutables",
+                        "type": "contracts::objects::Immutables"
+                    }
+                ],
+                "outputs": [],
+                "state_mutability": "external"
+            },
+            {
+                "type": "function",
+                "name": "cancel_dst",
+                "inputs": [
+                    {
+                        "name": "escrow",
+                        "type": "core::starknet::contract_address::ContractAddress"
+                    },
+                    {
+                        "name": "immutables",
+                        "type": "contracts::objects::Immutables"
+                    }
+                ],
+                "outputs": [],
+                "state_mutability": "external"
+            }
+        ]
+    },
+    {
+        "type": "constructor",
+        "name": "constructor",
+        "inputs": [
+            {
+                "name": "factory",
+                "type": "core::starknet::contract_address::ContractAddress"
+            },
+            {
+                "name": "LOP",
+                "type": "core::starknet::contract_address::ContractAddress"
+            },
+            {
+                "name": "owner",
+                "type": "core::starknet::contract_address::ContractAddress"
+            }
+        ]
+    },
+    {
+        "type": "event",
+        "name": "contracts::Resolver::Resolver::Event",
+        "kind": "enum",
+        "variants": []
+    }
+]

@@ -1,5 +1,5 @@
 import {AbiCoder, Contract, JsonRpcProvider, Signer, TransactionRequest, Wallet as PKWallet} from 'ethers'
-import Sdk from '@1inch/cross-chain-sdk'
+import * as Sdk from '@1inch/cross-chain-sdk'
 import ERC20 from '../dist/contracts/IERC20.sol/IERC20.json'
 
 const coder = AbiCoder.defaultAbiCoder()
@@ -100,7 +100,7 @@ export class Wallet {
             return {
                 txHash: receipt.hash,
                 blockTimestamp: BigInt((await res.getBlock())!.timestamp),
-                blockHash: res.blockHash as string
+                blockHash: receipt.blockHash as string
             }
         }
 

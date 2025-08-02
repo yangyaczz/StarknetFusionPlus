@@ -267,6 +267,13 @@ describe('Resolving example', () => {
                 .withComplement(srcEscrowEvent[1])
                 .withTaker(new Address(resolverContract.dstAddress))
 
+            //??????
+            console.log('dstImmutables', dstImmutables)
+            const cancellation =   dstImmutables.timeLocks.toSrcTimeLocks().privateCancellation
+            console.log('cancellation', cancellation)
+
+
+
             console.log(`[${dstChainId}]`, `Depositing ${dstImmutables.amount} for order ${orderHash}`)
             const { txHash: dstDepositHash, blockTimestamp: dstDeployedAt } = await dstChainResolver.send(
                 resolverContract.deployDst(dstImmutables)
