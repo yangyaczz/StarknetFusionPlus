@@ -16,7 +16,7 @@ import dotenv from 'dotenv'
 
 dotenv.config({})
 
-// 统一配置
+// Unified configuration
 const CONFIG = {
     op: {
         chainId: 10,
@@ -47,7 +47,7 @@ const CONFIG = {
     }
 } as const
 
-// 时间锁配置
+// Timelock configuration
 const TIME_LOCKS = {
     srcWithdrawal: 10n,
     srcPublicWithdrawal: 120n,
@@ -74,6 +74,24 @@ interface SwapAmounts {
     taking: bigint
 }
 
+// Helper function to generate blockchain explorer links
+function getExplorerLink(chainId: number, txHash: string): string {
+    if (chainId === 10) {
+        return `https://optimistic.etherscan.io/tx/${txHash}`
+    } else if (chainId === 99999) {
+        return `https://sepolia.voyager.online/tx/${txHash}`
+    }
+    return `Transaction: ${txHash}`
+}
+
+// Step logging function
+function logStep(stepNumber: number, description: string, details?: any) {
+    console.log(`\n=== STEP ${stepNumber}: ${description} ===`)
+    if (details) {
+        console.log(details)
+    }
+}
+
 export class OpToStarknetSwap {
     private readonly providers: {
         op: JsonRpcProvider
@@ -89,7 +107,7 @@ export class OpToStarknetSwap {
     private readonly contracts = CONFIG.contracts
 
     constructor() {
-        // 初始化提供者
+        // Initialize providers
         this.providers = {
             op: new JsonRpcProvider(CONFIG.op.url, CONFIG.op.chainId, {
                 cacheTimeout: -1,
@@ -101,7 +119,7 @@ export class OpToStarknetSwap {
             })
         }
 
-        // 初始化钱包
+        // Initialize wallets
         this.wallets = {
             user: new Wallet(CONFIG.privateKeys.user, this.providers.op),
             resolver: new Wallet(CONFIG.privateKeys.resolver, this.providers.op),
@@ -114,24 +132,51 @@ export class OpToStarknetSwap {
     }
 
     async swapTokens(params: SwapParams) {
-        console.log('🚀 开始跨链token交换')
-        console.log(`源token: ${params.srcToken} -> 目标token: ${params.dstToken}`)
-        console.log(`交换金额: ${params.makingAmount} -> ${params.takingAmount}`)
+        console.log('🚀 Starting OP to Starknet cross-chain token swap')
+        console.log(`Source token: ${params.srcToken} -> Destination token: ${params.dstToken}`)
+        console.log(`Swap amount: ${params.makingAmount} -> ${params.takingAmount}`)
 
-        // 转换金额并验证
+        // Parse amounts and validate
         const amounts = this.parseAmounts(params.makingAmount, params.takingAmount)
         await this.checkAndApproveTokens(params.srcToken, amounts.making)
 
-        // 创建和签名订单
+        // Step 1: User submits order
+        logStep(1, "User submits order", {
+            srcToken: params.srcToken,
+            dstToken: params.dstToken,
+            makingAmount: params.makingAmount,
+            takingAmount: params.takingAmount
+        })
+
+        // Create and sign order
         const { secret, order, signature, orderHash } = await this.createAndSignOrder(params, amounts)
 
-        // 执行跨链交换
+        // Step 2: Resolver receives order and deploys src & dst escrows
+        logStep(2, "Resolver receives order and deploys src & dst escrows")
+
+        // Execute cross-chain swap
         const { srcEscrowAddress, srcEscrowEvent, dstEscrowAddress, immutables } = await this.executeSwap(
             order, signature, orderHash, secret, params, amounts
         )
 
-        // 执行提取操作
+        // Step 3: Relayer checks completion and provides secret to resolver
+        logStep(3, "Relayer checks completion and provides secret to resolver", {
+            secret: secret,
+            srcEscrowAddress: srcEscrowAddress.toString(),
+            dstEscrowAddress: dstEscrowAddress
+        })
+
+        // Step 4: Resolver withdraws from src and dst escrows using secret
+        logStep(4, "Resolver withdraws from src and dst escrows using secret")
+
+        // Execute withdrawals
         await this.executeWithdrawals(srcEscrowAddress, srcEscrowEvent, dstEscrowAddress, secret, immutables, params.starknetResolverContract)
+
+        // Step 5: Complete all steps and finish order
+        logStep(5, "Complete all steps and finish order", {
+            orderHash: orderHash,
+            status: "SUCCESS"
+        })
 
         return { orderHash, secret, order }
     }
@@ -142,7 +187,7 @@ export class OpToStarknetSwap {
             taking: parseUnits(takingAmount.toString(), CONFIG.constants.DECIMALS)
         }
         
-        console.log(`实际金额: ${amounts.making} -> ${amounts.taking} (${CONFIG.constants.DECIMALS} decimals)`)
+        console.log(`Actual amounts: ${amounts.making} -> ${amounts.taking} (${CONFIG.constants.DECIMALS} decimals)`)
         return amounts
     }
 
@@ -152,30 +197,32 @@ export class OpToStarknetSwap {
         const signature = await this.wallets.user.signOrder(CONFIG.op.chainId, order)
         const orderHash = order.getOrderHash(CONFIG.op.chainId)
         
-        console.log('📝 订单已签名:', signature)
-        console.log('📝 订单哈希:', orderHash)
+        console.log('📝 Order signed:', signature)
+        console.log('📝 Order hash:', orderHash)
         
         return { secret, order, signature, orderHash }
     }
 
     private async executeSwap(order: any, signature: string, orderHash: string, secret: string, params: SwapParams, amounts: SwapAmounts) {
-        console.log('📤 提交订单给解析器...')
+        console.log('📤 Submitting order to resolver...')
         
-        // 在源链部署 escrow
+        // Deploy escrow on source chain
         const srcDeployment = await this.deploySrcEscrow(order, signature)
-        console.log(`[${CONFIG.op.chainId}] Order ${orderHash} filled for ${order.makingAmount} in tx ${srcDeployment.txHash}`)
+        const opTxLink = getExplorerLink(CONFIG.op.chainId, srcDeployment.txHash)
+        console.log(`[${CONFIG.op.chainId}] Order ${orderHash} filled for ${order.makingAmount} in tx:`)
+        console.log(`🔗 ${opTxLink}`)
 
-        // 获取源链 escrow 信息
+        // Get source chain escrow info
         const srcEscrowData = await this.getSrcEscrowData(srcDeployment.blockHash)
         
-        // 在目标链部署 escrow
+        // Deploy escrow on destination chain
         const { dstEscrowAddress, immutables } = await this.deployDstEscrow(
             orderHash, secret, params, amounts, srcEscrowData.cancellation
         )
 
         return {
             srcEscrowAddress: srcEscrowData.address,
-            srcEscrowEvent: srcEscrowData.event, // 添加这个
+            srcEscrowEvent: srcEscrowData.event,
             dstEscrowAddress,
             immutables
         }
@@ -225,7 +272,10 @@ export class OpToStarknetSwap {
             }
         ])
 
-        console.log('Starknet dst created:', txResult)
+        const starknetTxLink = getExplorerLink(CONFIG.starknet.chainId, txResult.transaction_hash)
+        console.log('Starknet dst created:')
+        console.log(`🔗 ${starknetTxLink}`)
+        
         const dstEscrowAddress = await this.extractDstEscrowAddress(txResult.transaction_hash)
         
         return { dstEscrowAddress, immutables }
@@ -271,25 +321,23 @@ export class OpToStarknetSwap {
         return targetEvent.data[0]
     }
 
-    private async executeWithdrawals(srcEscrowAddress: string, srcEscrowEvent: any, dstEscrowAddress: string, secret: string, immutables: any, starknetResolverContract: string) {
-        // 等待时间锁
-        console.log(`⏰ 等待 ${CONFIG.constants.WAIT_TIME / 1000} 秒...`)
+    private async executeWithdrawals(srcEscrowAddress: any, srcEscrowEvent: any, dstEscrowAddress: string, secret: string, immutables: any, starknetResolverContract: string) {
+        // Wait for timelock
+        console.log(`⏰ Waiting ${CONFIG.constants.WAIT_TIME / 1000} seconds...`)
         await new Promise(resolve => setTimeout(resolve, CONFIG.constants.WAIT_TIME))
 
-        // 源链提取
+        // Source chain withdrawal
         const resolverSrc = new ResolverEVM(this.contracts.resolver, this.contracts.resolver)
         
-        await this.wallets.resolver.send(
+        const srcWithdrawTx = await this.wallets.resolver.send(
             resolverSrc.withdraw('src', srcEscrowAddress, secret + '00', srcEscrowEvent)
         )
 
-        // 目标链提取
-        // const starknetWithdrawResult1 = await this.wallets.starknetResolver.execute([{
-        //     contractAddress: dstEscrowAddress,
-        //     entrypoint: 'withdraw',
-        //     calldata: CallData.compile({ secret, immutables })
-        // }])
+        const opWithdrawLink = getExplorerLink(CONFIG.op.chainId, srcWithdrawTx.txHash)
+        console.log('✅ OP src withdraw completed:')
+        console.log(`🔗 ${opWithdrawLink}`)
 
+        // Destination chain withdrawal
         const starknetWithdrawResult = await this.wallets.starknetResolver.execute([{
             contractAddress: starknetResolverContract,
             entrypoint: 'withdraw_dst',
@@ -297,7 +345,9 @@ export class OpToStarknetSwap {
         }])
 
         await this.providers.starknet.waitForTransaction(starknetWithdrawResult.transaction_hash)
-        console.log('✅ Starknet withdraw completed:', starknetWithdrawResult)
+        const starknetWithdrawLink = getExplorerLink(CONFIG.starknet.chainId, starknetWithdrawResult.transaction_hash)
+        console.log('✅ Starknet withdraw completed:')
+        console.log(`🔗 ${starknetWithdrawLink}`)
     }
 
     private async createCrossChainOrder(params: SwapParams, amounts: SwapAmounts, secret: string) {
@@ -342,10 +392,10 @@ export class OpToStarknetSwap {
             }
         ) as any
 
-        // 设置非EVM链标志和自定义数据
+        // Configure for Starknet
         this.configureOrderForStarknet(order, secret, params)
 
-        console.log('📋 创建跨链订单:', {
+        console.log('📋 Created cross-chain order:', {
             orderHash: order.getOrderHash(CONFIG.op.chainId),
             makingAmount: amounts.making.toString(),
             takingAmount: amounts.taking.toString(),
@@ -357,14 +407,14 @@ export class OpToStarknetSwap {
     }
 
     private configureOrderForStarknet(order: any, secret: string, params: SwapParams) {
-        // 设置非EVM链标志
+        // Set non-EVM chain flag
         const originalMakerTraits = order.inner.inner.makerTraits.value.value
         order.inner.inner.makerTraits.value.value = originalMakerTraits | CONFIG.constants.DST_NOT_EVM_FLAG
 
-        // 设置Starknet链ID
+        // Set Starknet chain ID
         order.inner.escrowExtension.dstChainId = CONFIG.starknet.chainId
 
-        // 设置自定义数据
+        // Set custom data
         const starknetHashlock = '0x' + hash.computePoseidonHashOnElements([secret]).slice(2).padStart(64, '0')
         const customData = this.encodeCustomData(
             getChecksumAddress(params.starknetUser),
@@ -373,7 +423,7 @@ export class OpToStarknetSwap {
         )
         order.inner.inner.extension.customData = customData
 
-        // 重新计算salt
+        // Recalculate salt
         const extensionBytes = order.extension.encode()
         const extensionHash = ethers.keccak256(extensionBytes)
         order.inner.inner._salt = BigInt(extensionHash) & ((1n << 160n) - 1n)
@@ -399,64 +449,64 @@ export class OpToStarknetSwap {
         const userAddress = await this.wallets.user.getAddress()
         const balance = await tokenContract.balanceOf(userAddress)
         
-        console.log(`💰 当前token余额: ${balance} (需要: ${amount})`)
+        console.log(`💰 Current token balance: ${balance} (needed: ${amount})`)
         
         if (balance < amount) {
-            throw new Error(`Token余额不足! 当前: ${balance}, 需要: ${amount}`)
+            throw new Error(`Insufficient token balance! Current: ${balance}, needed: ${amount}`)
         }
 
         const allowance = await tokenContract.allowance(userAddress, CONFIG.op.limitOrderProtocol)
         
         if (allowance < amount) {
-            console.log('🔓 授权token给1inch限价订单协议...')
+            console.log('🔓 Approving token for 1inch limit order protocol...')
             const approveTx = await tokenContract.approve(CONFIG.op.limitOrderProtocol, MaxUint256)
             await approveTx.wait()
-            console.log('✅ Token授权成功')
+            console.log('✅ Token approval successful')
         }
     }
 }
 
-// 主函数
+// Main function
 async function main() {
     try {
-        // 解析命令行参数
+        // Parse command line arguments
         const args = process.argv.slice(2)
         
         if (args.length < 5) {
-            console.log('❌ 参数不足')
-            console.log('使用方法:')
+            console.log('❌ Insufficient parameters')
+            console.log('Usage:')
             console.log('pnpm run swap <srcToken> <makingAmount> <dstToken> <takingAmount> <starknetUser>')
             console.log('')
-            console.log('参数说明:')
-            console.log('  srcToken     - 源链token地址 (如: 0x722d3c28fadCee0f1070C12C4d47F20DB5bfE82B)')
-            console.log('  makingAmount - 源token数量 (如: 100)')
-            console.log('  dstToken     - 目标链token地址 (如: 0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d)')
-            console.log('  takingAmount - 目标token数量 (如: 1)')
-            console.log('  starknetUser - Starknet用户地址 (如: 0x060684D67EE65A3C3C41932cAeAD3d6B19c0738390d24924f172FFB416Cef3ae)')
+            console.log('Parameter description:')
+            console.log('  srcToken     - Source chain token address (e.g.: 0x722d3c28fadCee0f1070C12C4d47F20DB5bfE82B)')
+            console.log('  makingAmount - Source token amount (e.g.: 100)')
+            console.log('  dstToken     - Destination chain token address (e.g.: 0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d)')
+            console.log('  takingAmount - Destination token amount (e.g.: 1)')
+            console.log('  starknetUser - Starknet user address (e.g.: 0x060684D67EE65A3C3C41932cAeAD3d6B19c0738390d24924f172FFB416Cef3ae)')
             console.log('')
-            console.log('示例:')
+            console.log('Example:')
             console.log('pnpm run swap 0x722d3c28fadCee0f1070C12C4d47F20DB5bfE82B 100 0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d 1 0x060684D67EE65A3C3C41932cAeAD3d6B19c0738390d24924f172FFB416Cef3ae')
             process.exit(1)
         }
 
         const [srcToken, makingAmountStr, dstToken, takingAmountStr, starknetUser] = args
 
-        // 验证参数
+        // Validate parameters
         const validation = validateParameters(srcToken, makingAmountStr, dstToken, takingAmountStr, starknetUser)
         if (!validation.isValid) {
-            console.error('❌ 参数验证失败:', validation.error)
+            console.error('❌ Parameter validation failed:', validation.error)
             process.exit(1)
         }
 
         const makingAmount = parseFloat(makingAmountStr)
         const takingAmount = parseFloat(takingAmountStr)
 
-        console.log('📋 交换参数:')
-        console.log(`  源Token: ${srcToken}`)
-        console.log(`  源数量: ${makingAmount}`)
-        console.log(`  目标Token: ${dstToken}`)
-        console.log(`  目标数量: ${takingAmount}`)
-        console.log(`  Starknet用户: ${starknetUser}`)
+        console.log('📋 Swap parameters:')
+        console.log(`  Source Token: ${srcToken}`)
+        console.log(`  Source Amount: ${makingAmount}`)
+        console.log(`  Destination Token: ${dstToken}`)
+        console.log(`  Destination Amount: ${takingAmount}`)
+        console.log(`  Starknet User: ${starknetUser}`)
         console.log('')
 
         const swapper = new OpToStarknetSwap()
@@ -467,52 +517,52 @@ async function main() {
             makingAmount,
             takingAmount,
             starknetUser,
-            starknetResolverContract: '0x56694ab2329b53a675c6308f145872f675f0f4364c9d1440ca53718bb5cb810' // 固定的resolver地址
+            starknetResolverContract: '0x56694ab2329b53a675c6308f145872f675f0f4364c9d1440ca53718bb5cb810' // Fixed resolver address
         }
 
         const result = await swapper.swapTokens(swapParams)
 
-        console.log('🎉 交换订单创建成功!')
-        console.log('订单哈希:', result.orderHash)
-        console.log('密钥:', result.secret)
+        console.log('🎉 Swap order created successfully!')
+        console.log('Order hash:', result.orderHash)
+        console.log('Secret:', result.secret)
 
     } catch (error) {
-        console.error('❌ 交换失败:', error)
+        console.error('❌ Swap failed:', error)
         process.exit(1)
     }
 }
 
-// 参数验证函数
+// Parameter validation function
 function validateParameters(srcToken: string, makingAmountStr: string, dstToken: string, takingAmountStr: string, starknetUser: string) {
-    // 验证地址格式
+    // Validate address format
     if (!isValidEthereumAddress(srcToken)) {
-        return { isValid: false, error: `无效的源token地址: ${srcToken}` }
+        return { isValid: false, error: `Invalid source token address: ${srcToken}` }
     }
 
     if (!isValidStarknetAddress(dstToken)) {
-        return { isValid: false, error: `无效的目标token地址: ${dstToken}` }
+        return { isValid: false, error: `Invalid destination token address: ${dstToken}` }
     }
 
     if (!isValidStarknetAddress(starknetUser)) {
-        return { isValid: false, error: `无效的Starknet用户地址: ${starknetUser}` }
+        return { isValid: false, error: `Invalid Starknet user address: ${starknetUser}` }
     }
 
-    // 验证数量
+    // Validate amounts
     const makingAmount = parseFloat(makingAmountStr)
     const takingAmount = parseFloat(takingAmountStr)
 
     if (isNaN(makingAmount) || makingAmount <= 0) {
-        return { isValid: false, error: `无效的源token数量: ${makingAmountStr}` }
+        return { isValid: false, error: `Invalid source token amount: ${makingAmountStr}` }
     }
 
     if (isNaN(takingAmount) || takingAmount <= 0) {
-        return { isValid: false, error: `无效的目标token数量: ${takingAmountStr}` }
+        return { isValid: false, error: `Invalid destination token amount: ${takingAmountStr}` }
     }
 
     return { isValid: true }
 }
 
-// 地址验证辅助函数
+// Address validation helper functions
 function isValidEthereumAddress(address: string): boolean {
     return /^0x[a-fA-F0-9]{40}$/.test(address)
 }
@@ -526,4 +576,4 @@ await main()
 export default OpToStarknetSwap
 
 
-// pnpm run EVMTOSN 0x722d3c28fadCee0f1070C12C4d47F20DB5bfE82B 100 0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d 1 0x060684D67EE65A3C3C41932cAeAD3d6B19c0738390d24924f172FFB416Cef3ae
+// pnpm run EVMTOSN 0x722d3c28fadCee0f1070C12C4d47F20DB5bfE82B 8 0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d 1 0x060684D67EE65A3C3C41932cAeAD3d6B19c0738390d24924f172FFB416Cef3ae

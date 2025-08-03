@@ -19,7 +19,7 @@ import { compileBundleOptions } from '@swc/core/spack'
 
 dotenv.config({})
 
-// 统一配置
+// Unified configuration
 const CONFIG = {
     starknet: {
         chainId: 99999,
@@ -48,11 +48,11 @@ const CONFIG = {
         WAIT_TIME: 11000, // 11 seconds
         DECIMALS: 18,
         SRC_DEPLOY_EVENT_KEY: '0xf323845026b2be2da82fc16476961f810f279069ce9e128eabc1023a87ade0',
-        SAFETY_DEPOSIT: '110000000000000', // 添加 safety_deposit 配置  0.0006600
+        SAFETY_DEPOSIT: '110000000000000', // Add safety_deposit config  0.0006600
     }
 } as const
 
-// 时间锁配置
+// Timelock configuration
 const TIME_LOCKS = {
     srcWithdrawal: 5n,
     srcPublicWithdrawal: 440n,
@@ -75,8 +75,26 @@ interface SwapParams {
 
 interface SwapAmounts {
     making: any // cairo.uint256
-    taking: any // cairo.uint256 - 修正为 cairo.uint256
-    safetyDeposit: any // cairo.uint256 - 添加 safety_deposit
+    taking: any // cairo.uint256 - Fixed to cairo.uint256
+    safetyDeposit: any // cairo.uint256 - Add safety_deposit
+}
+
+// Helper function to generate blockchain explorer links
+function getExplorerLink(chainId: number, txHash: string): string {
+    if (chainId === 10) {
+        return `https://optimistic.etherscan.io/tx/${txHash}`
+    } else if (chainId === 99999) {
+        return `https://sepolia.voyager.online/tx/${txHash}`
+    }
+    return `Transaction: ${txHash}`
+}
+
+// Step logging function
+function logStep(stepNumber: number, description: string, details?: any) {
+    console.log(`\n=== STEP ${stepNumber}: ${description} ===`)
+    if (details) {
+        console.log(details)
+    }
 }
 
 export class StarknetToOpSwap {
@@ -93,10 +111,10 @@ export class StarknetToOpSwap {
 
     private readonly contracts = CONFIG.contracts
 
-    private lastStarknetImmutables: any; // 存储最后创建的 Starknet immutables
+    private lastStarknetImmutables: any; // Store last created Starknet immutables
 
     constructor() {
-        // 初始化提供者
+        // Initialize providers
         this.providers = {
             starknet: new RpcProvider({
                 nodeUrl: CONFIG.starknet.url,
@@ -108,7 +126,7 @@ export class StarknetToOpSwap {
             })
         }
 
-        // 初始化钱包
+        // Initialize wallets
         this.wallets = {
             starknetUser: new Account(
                 this.providers.starknet,
@@ -118,7 +136,7 @@ export class StarknetToOpSwap {
             resolver: new Wallet(CONFIG.privateKeys.resolver, this.providers.op),
             starknetResolver: new Account(
                 this.providers.starknet,
-                process.env.STARKNET_RESOLVER_ADDRESS!, // 使用账户地址，不是合约地址
+                process.env.STARKNET_RESOLVER_ADDRESS!, // Use account address, not contract address
                 CONFIG.privateKeys.starknetResolver
             )
         }
@@ -128,27 +146,54 @@ export class StarknetToOpSwap {
 
     async swapTokens(params: SwapParams) {
 
-        console.log('🚀 开始从Starknet到OP的跨链token交换')
-        console.log(`源token: ${params.srcToken} -> 目标token: ${params.dstToken}`)
-        console.log(`交换金额: ${params.makingAmount} -> ${params.takingAmount}`)
+        console.log('🚀 Starting Starknet to OP cross-chain token swap')
+        console.log(`Source token: ${params.srcToken} -> Destination token: ${params.dstToken}`)
+        console.log(`Swap amount: ${params.makingAmount} -> ${params.takingAmount}`)
 
-        // 转换金额并验证
+        // Parse amounts and validate
         const amounts = this.parseAmounts(params.makingAmount, params.takingAmount)
         await this.checkAndApproveStarknetTokens(params.srcToken, amounts.making)
 
-        // 创建和签名订单
+        // Step 1: User submits order
+        logStep(1, "User submits order", {
+            srcToken: params.srcToken,
+            dstToken: params.dstToken,
+            makingAmount: params.makingAmount,
+            takingAmount: params.takingAmount
+        })
+
+        // Create and sign order
         const { secret, order, signature, orderHash } = await this.createAndSignStarknetOrder(params, amounts)
 
-        // 等待5s
+        // Wait 5s
         await new Promise(resolve => setTimeout(resolve, 5000))
 
-        // 执行跨链交换
+        // Step 2: Resolver receives order and deploys src & dst escrows
+        logStep(2, "Resolver receives order and deploys src & dst escrows")
+
+        // Execute cross-chain swap
         const { srcEscrowAddress, srcCancellation, dstEscrowAddress, dstImmutables } = await this.executeSwap(
             order, signature, orderHash, secret, params, amounts
         )
 
-        // 执行提取操作
+        // Step 3: Relayer checks completion and provides secret to resolver
+        logStep(3, "Relayer checks completion and provides secret to resolver", {
+            secret: secret,
+            srcEscrowAddress: srcEscrowAddress,
+            dstEscrowAddress: dstEscrowAddress
+        })
+
+        // Step 4: Resolver withdraws from src and dst escrows using secret
+        logStep(4, "Resolver withdraws from src and dst escrows using secret")
+
+        // Execute withdrawals
         await this.executeWithdrawals(srcEscrowAddress, srcCancellation, dstEscrowAddress, secret, dstImmutables, params)
+
+        // Step 5: Complete all steps and finish order
+        logStep(5, "Complete all steps and finish order", {
+            orderHash: orderHash,
+            status: "SUCCESS"
+        })
 
         return { orderHash, secret, order }
     }
@@ -156,11 +201,11 @@ export class StarknetToOpSwap {
     private parseAmounts(makingAmount: number, takingAmount: number): SwapAmounts {
         const amounts = {
             making: cairo.uint256(parseUnits(makingAmount.toString(), CONFIG.constants.DECIMALS).toString()),
-            taking: cairo.uint256(parseUnits(takingAmount.toString(), CONFIG.constants.DECIMALS).toString()), // 修正为 cairo.uint256
-            safetyDeposit: cairo.uint256(CONFIG.constants.SAFETY_DEPOSIT) // 添加 safety_deposit
+            taking: cairo.uint256(parseUnits(takingAmount.toString(), CONFIG.constants.DECIMALS).toString()), // Fixed to cairo.uint256
+            safetyDeposit: cairo.uint256(CONFIG.constants.SAFETY_DEPOSIT) // Add safety_deposit
         }
 
-        console.log(`实际金额: ${makingAmount} -> ${takingAmount} (${CONFIG.constants.DECIMALS} decimals)`)
+        console.log(`Actual amounts: ${makingAmount} -> ${takingAmount} (${CONFIG.constants.DECIMALS} decimals)`)
         console.log(`Safety deposit: ${CONFIG.constants.SAFETY_DEPOSIT}`)
         return amounts
     }
@@ -171,8 +216,8 @@ export class StarknetToOpSwap {
         const signature = this.signStarknetOrder(order)
         const orderHash = hash.computeHashOnElements(this.getOrderArray(order))
 
-        console.log('📝 Starknet订单已创建')
-        console.log('📝 订单哈希:', orderHash)
+        console.log('📝 Starknet order created')
+        console.log('📝 Order hash:', orderHash)
 
         return { secret, order, signature, orderHash }
     }
@@ -207,13 +252,13 @@ export class StarknetToOpSwap {
     }
 
     private async executeSwap(order: any, signature: string, orderHash: string, secret: string, params: SwapParams, amounts: SwapAmounts) {
-        console.log('📤 在Starknet上部署源escrow...')
+        console.log('📤 Deploying src escrow on Starknet...')
 
-        // 在Starknet上部署 src escrow
+        // Deploy src escrow on Starknet
         const { srcEscrowAddress, srcCancellation } = await this.deployStarknetSrcEscrow(order, signature, secret, amounts)
         console.log(`[Starknet] Order ${orderHash} src escrow deployed at ${srcEscrowAddress}`)
 
-        // 在OP上部署 dst escrow
+        // Deploy dst escrow on OP
         const { dstEscrowAddress, dstImmutables } = await this.deployOpDstEscrow(
             orderHash, secret, params, amounts, srcCancellation
         )
@@ -228,7 +273,7 @@ export class StarknetToOpSwap {
 
     private async deployStarknetSrcEscrow(order: any, signature: string, secret: string, amounts: SwapAmounts) {
         const immutables = this.createStarknetImmutables(order, secret, amounts)
-        this.lastStarknetImmutables = immutables; // 存储以便后续使用
+        this.lastStarknetImmutables = immutables; // Store for later use
 
         const result = await this.wallets.starknetResolver.execute([
             {
@@ -256,6 +301,10 @@ export class StarknetToOpSwap {
             throw new Error('Starknet src escrow deployment failed')
         }
 
+        const starknetSrcTxLink = getExplorerLink(CONFIG.starknet.chainId, result.transaction_hash)
+        console.log('Starknet src escrow deployed:')
+        console.log(`🔗 ${starknetSrcTxLink}`)
+
         const targetEvent = txReceipt.value.events.find(event =>
             event.keys?.includes(CONFIG.constants.SRC_DEPLOY_EVENT_KEY)
         )
@@ -278,7 +327,7 @@ export class StarknetToOpSwap {
             taker: CONFIG.contracts.starknetResolverContract,
             token: order.maker_asset,
             amount: amounts.making,
-            safety_deposit: amounts.safetyDeposit, // 使用配置的 safety_deposit
+            safety_deposit: amounts.safetyDeposit, // Use configured safety_deposit
             timelocks: {
                 deployed_at: 0,
                 src_withdrawal: Number(TIME_LOCKS.srcWithdrawal),
@@ -293,7 +342,7 @@ export class StarknetToOpSwap {
     }
 
     private async deployOpDstEscrow(orderHash: string, secret: string, params: SwapParams, amounts: SwapAmounts, srcCancellation: string) {
-        // 创建符合EVM格式的dst immutables
+        // Create EVM-compatible dst immutables
         const dstImmutables = await this.createOpDstImmutables(orderHash, secret, params, amounts, BigInt(srcCancellation));
 
         const resolverContract = new ResolverEVM(this.contracts.resolver, this.contracts.resolver);
@@ -309,9 +358,11 @@ export class StarknetToOpSwap {
             value: dstImmutables[6]
         });
 
-        console.log(`[OP] Created dst deposit in tx ${dstDepositHash}`);
+        const opDstTxLink = getExplorerLink(CONFIG.op.chainId, dstDepositHash)
+        console.log(`[OP] Created dst deposit in tx:`)
+        console.log(`🔗 ${opDstTxLink}`)
 
-        // 查询交易的所有事件
+        // Query all transaction events
         const txReceipt = await this.providers.op.getTransactionReceipt(dstDepositHash);
 
         if (!txReceipt) {
@@ -326,24 +377,24 @@ export class StarknetToOpSwap {
             // });
         });
 
-        // 查找特定的 topic
+        // Find specific topic
         const targetTopic = '0xc30e111dcc74fddc2c3a4d98ffb97adec4485c0a687946bf5b22c2a99c7ff96d';
         const targetEvent = txReceipt.logs.find(log =>
             log.topics.includes(targetTopic)
         );
 
         if (!targetEvent) {
-            console.error('❌ 未找到目标事件');
+            console.error('❌ Target event not found');
             throw new Error(`Event with topic ${targetTopic} not found`);
         }
 
-        // 解码 data 字段获取 dst escrow 地址
+        // Decode data field to get dst escrow address
         const dstEscrowAddress = targetEvent.data;
 
-        const parsedAddress = '0x' + dstEscrowAddress.slice(26, 66); // 取地址部分
-        console.log('DST Escrow 地址:', parsedAddress);
+        const parsedAddress = '0x' + dstEscrowAddress.slice(26, 66); // Extract address part
+        console.log('DST Escrow Address:', parsedAddress);
 
-        // 计算dst escrow地址
+        // Calculate dst escrow address
         // const opFactory = new EscrowFactory(this.providers.op, this.contracts.escrowFactory);
         // const ESCROW_DST_IMPLEMENTATION = await opFactory.getDestinationImpl();
 
@@ -356,14 +407,14 @@ export class StarknetToOpSwap {
     }
 
     private async createOpDstImmutables(orderHash: string, secret: string, params: SwapParams, amounts: SwapAmounts, srcCancellation: bigint) {
-        // 1. 处理 orderHash - 转换为适合的格式
+        // 1. Process orderHash - convert to suitable format
         const processedOrderHash = BigInt(orderHash) & ((1n << 256n) - 1n);
 
-        // 2. 将 cairo.uint256 转换为 bigint
+        // 2. Convert cairo.uint256 to bigint
         const amountBigInt = BigInt(amounts.taking.low) + (BigInt(amounts.taking.high) << 128n);
         const safetyDepositBigInt = BigInt(amounts.safetyDeposit.low) + (BigInt(amounts.safetyDeposit.high) << 128n);
 
-        // 3. 创建符合 SDK 格式的组件
+        // 3. Create SDK-compatible components
         const hashLock = Sdk.HashLock.forSingleFill(secret + '00');
         const timeLocks = Sdk.TimeLocks.new(TIME_LOCKS).toDstTimeLocks(srcCancellation - TIME_LOCKS.srcCancellation);
 
@@ -379,23 +430,23 @@ export class StarknetToOpSwap {
             params.dstToken,             // address token
             amountBigInt,                // uint256 amount
             safetyDepositBigInt,         // uint256 safetyDeposit (0)
-            Sdk.TimeLocks.new(TIME_LOCKS).build()            // uint256 timelocks (编码后的值)
+            Sdk.TimeLocks.new(TIME_LOCKS).build()            // uint256 timelocks (encoded value)
         ];
     }
 
-    // 辅助函数：将 cairo.uint256 转换为 bigint
+    // Helper function: convert cairo.uint256 to bigint
     private cairoUint256ToBigInt(cairoUint256: any): bigint {
         return BigInt(cairoUint256.low) + (BigInt(cairoUint256.high) << 128n);
     }
 
-    // 更新 executeWithdrawals 方法，正确传递 immutables
+    // Update executeWithdrawals method to properly pass immutables
     private async executeWithdrawals(srcEscrowAddress: string, srcCancellation: string, dstEscrowAddress: string, secret: string, dstImmutables: any, params: SwapParams) {
-        // 等待时间锁
-        console.log(`⏰ 等待 ${CONFIG.constants.WAIT_TIME / 1000} 秒...`);
+        // Wait for timelock
+        console.log(`⏰ Waiting ${CONFIG.constants.WAIT_TIME / 1000} seconds...`);
         await new Promise(resolve => setTimeout(resolve, CONFIG.constants.WAIT_TIME));
 
-        // 目标链提取 (OP) - 使用正确的格式
-        console.log(`💰 从OP dst escrow提取资金: ${dstEscrowAddress}`);
+        // Destination chain withdrawal (OP) - use correct format
+        console.log(`💰 Withdrawing funds from OP dst escrow: ${dstEscrowAddress}`);
 
         let interfaceEscrowDst = new Interface([{ "inputs": [{ "internalType": "uint32", "name": "rescueDelay", "type": "uint32" }, { "internalType": "contract IERC20", "name": "accessToken", "type": "address" }], "stateMutability": "nonpayable", "type": "constructor" }, { "inputs": [], "name": "InvalidCaller", "type": "error" }, { "inputs": [], "name": "InvalidImmutables", "type": "error" }, { "inputs": [], "name": "InvalidSecret", "type": "error" }, { "inputs": [], "name": "InvalidTime", "type": "error" }, { "inputs": [], "name": "NativeTokenSendingFailure", "type": "error" }, { "inputs": [], "name": "SafeTransferFailed", "type": "error" }, { "anonymous": false, "inputs": [], "name": "EscrowCancelled", "type": "event" }, { "anonymous": false, "inputs": [{ "indexed": false, "internalType": "bytes32", "name": "secret", "type": "bytes32" }], "name": "EscrowWithdrawal", "type": "event" }, { "anonymous": false, "inputs": [{ "indexed": false, "internalType": "address", "name": "token", "type": "address" }, { "indexed": false, "internalType": "uint256", "name": "amount", "type": "uint256" }], "name": "FundsRescued", "type": "event" }, { "inputs": [], "name": "FACTORY", "outputs": [{ "internalType": "address", "name": "", "type": "address" }], "stateMutability": "view", "type": "function" }, { "inputs": [], "name": "PROXY_BYTECODE_HASH", "outputs": [{ "internalType": "bytes32", "name": "", "type": "bytes32" }], "stateMutability": "view", "type": "function" }, { "inputs": [], "name": "RESCUE_DELAY", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" }, { "inputs": [{ "components": [{ "internalType": "bytes32", "name": "orderHash", "type": "bytes32" }, { "internalType": "bytes32", "name": "hashlock", "type": "bytes32" }, { "internalType": "Address", "name": "maker", "type": "uint256" }, { "internalType": "Address", "name": "taker", "type": "uint256" }, { "internalType": "Address", "name": "token", "type": "uint256" }, { "internalType": "uint256", "name": "amount", "type": "uint256" }, { "internalType": "uint256", "name": "safetyDeposit", "type": "uint256" }, { "internalType": "Timelocks", "name": "timelocks", "type": "uint256" }], "internalType": "struct IBaseEscrow.Immutables", "name": "immutables", "type": "tuple" }], "name": "cancel", "outputs": [], "stateMutability": "nonpayable", "type": "function" }, { "inputs": [{ "internalType": "bytes32", "name": "secret", "type": "bytes32" }, { "components": [{ "internalType": "bytes32", "name": "orderHash", "type": "bytes32" }, { "internalType": "bytes32", "name": "hashlock", "type": "bytes32" }, { "internalType": "Address", "name": "maker", "type": "uint256" }, { "internalType": "Address", "name": "taker", "type": "uint256" }, { "internalType": "Address", "name": "token", "type": "uint256" }, { "internalType": "uint256", "name": "amount", "type": "uint256" }, { "internalType": "uint256", "name": "safetyDeposit", "type": "uint256" }, { "internalType": "Timelocks", "name": "timelocks", "type": "uint256" }], "internalType": "struct IBaseEscrow.Immutables", "name": "immutables", "type": "tuple" }], "name": "publicWithdraw", "outputs": [], "stateMutability": "nonpayable", "type": "function" }, { "inputs": [{ "internalType": "address", "name": "token", "type": "address" }, { "internalType": "uint256", "name": "amount", "type": "uint256" }, { "components": [{ "internalType": "bytes32", "name": "orderHash", "type": "bytes32" }, { "internalType": "bytes32", "name": "hashlock", "type": "bytes32" }, { "internalType": "Address", "name": "maker", "type": "uint256" }, { "internalType": "Address", "name": "taker", "type": "uint256" }, { "internalType": "Address", "name": "token", "type": "uint256" }, { "internalType": "uint256", "name": "amount", "type": "uint256" }, { "internalType": "uint256", "name": "safetyDeposit", "type": "uint256" }, { "internalType": "Timelocks", "name": "timelocks", "type": "uint256" }], "internalType": "struct IBaseEscrow.Immutables", "name": "immutables", "type": "tuple" }], "name": "rescueFunds", "outputs": [], "stateMutability": "nonpayable", "type": "function" }, { "inputs": [{ "internalType": "bytes32", "name": "secret", "type": "bytes32" }, { "components": [{ "internalType": "bytes32", "name": "orderHash", "type": "bytes32" }, { "internalType": "bytes32", "name": "hashlock", "type": "bytes32" }, { "internalType": "Address", "name": "maker", "type": "uint256" }, { "internalType": "Address", "name": "taker", "type": "uint256" }, { "internalType": "Address", "name": "token", "type": "uint256" }, { "internalType": "uint256", "name": "amount", "type": "uint256" }, { "internalType": "uint256", "name": "safetyDeposit", "type": "uint256" }, { "internalType": "Timelocks", "name": "timelocks", "type": "uint256" }], "internalType": "struct IBaseEscrow.Immutables", "name": "immutables", "type": "tuple" }], "name": "withdraw", "outputs": [], "stateMutability": "nonpayable", "type": "function" }])
 
@@ -407,13 +458,15 @@ export class StarknetToOpSwap {
             ])
         });
 
-        console.log('✅ op dst withdraw completed:', dstWithdrawHash);
+        const opWithdrawTxLink = getExplorerLink(CONFIG.op.chainId, dstWithdrawHash)
+        console.log('✅ OP dst withdraw completed:')
+        console.log(`🔗 ${opWithdrawTxLink}`)
 
-        // 源链提取 (Starknet) - 需要重新构建 immutables
-        console.log(`💰 从Starknet src escrow提取资金: ${srcEscrowAddress}`);
+        // Source chain withdrawal (Starknet) - need to rebuild immutables
+        console.log(`💰 Withdrawing funds from Starknet src escrow: ${srcEscrowAddress}`);
 
-        // 存储原始订单和金额信息作为类属性，避免重新创建
-        const starknetImmutables = this.lastStarknetImmutables; // 需要在类中存储这个
+        // Store original order and amount info as class properties to avoid recreation
+        const starknetImmutables = this.lastStarknetImmutables; // Need to store this in the class
 
         const withdrawSrcResult = await this.wallets.starknetResolver.execute([{
             contractAddress: CONFIG.contracts.starknetResolverContract,
@@ -426,19 +479,21 @@ export class StarknetToOpSwap {
         }]);
 
         await this.providers.starknet.waitForTransaction(withdrawSrcResult.transaction_hash);
-        console.log('✅ Starknet src withdraw completed:', withdrawSrcResult);
+        const starknetWithdrawTxLink = getExplorerLink(CONFIG.starknet.chainId, withdrawSrcResult.transaction_hash)
+        console.log('✅ Starknet src withdraw completed:')
+        console.log(`🔗 ${starknetWithdrawTxLink}`)
     }
 
     private async checkAndApproveStarknetTokens(tokenAddress: string, amount: any) {
-        console.log('🔓 检查并授权Starknet token...')
+        console.log('🔓 Checking and approving Starknet token...')
 
-        // 需要授权 making_amount，用于LOP
+        // Need to approve making_amount for LOP
         const approveResult = await this.wallets.starknetUser.execute([{
             contractAddress: tokenAddress,
             entrypoint: 'approve',
             calldata: [
                 CONFIG.starknet.limitOrderProtocol,
-                amount // 这里是 making_amount
+                amount // This is making_amount
             ]
         }])
 
@@ -448,51 +503,51 @@ export class StarknetToOpSwap {
             throw new Error('Starknet token approval failed')
         }
 
-        console.log('✅ Starknet token授权成功')
+        console.log('✅ Starknet token approval successful')
     }
 }
 
-// 主函数
+// Main function
 async function main() {
     try {
-        // 解析命令行参数
+        // Parse command line arguments
         const args = process.argv.slice(2)
 
         if (args.length < 5) {
-            console.log('❌ 参数不足')
-            console.log('使用方法:')
+            console.log('❌ Insufficient parameters')
+            console.log('Usage:')
             console.log('pnpm run swap-starknet-to-op <srcToken> <makingAmount> <dstToken> <takingAmount> <opUser>')
             console.log('')
-            console.log('参数说明:')
-            console.log('  srcToken     - Starknet源token地址 (如: 0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d)')
-            console.log('  makingAmount - 源token数量 (如: 100)')
-            console.log('  dstToken     - OP目标token地址 (如: 0x722d3c28fadCee0f1070C12C4d47F20DB5bfE82B)')
-            console.log('  takingAmount - 目标token数量 (如: 1)')
-            console.log('  opUser       - OP用户地址 (如: 0x7F7Ac1507d9addC6b0b23872334F2a08bDc2Cd25)')
+            console.log('Parameter description:')
+            console.log('  srcToken     - Starknet source token address (e.g.: 0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d)')
+            console.log('  makingAmount - Source token amount (e.g.: 100)')
+            console.log('  dstToken     - OP destination token address (e.g.: 0x722d3c28fadCee0f1070C12C4d47F20DB5bfE82B)')
+            console.log('  takingAmount - Destination token amount (e.g.: 1)')
+            console.log('  opUser       - OP user address (e.g.: 0x7F7Ac1507d9addC6b0b23872334F2a08bDc2Cd25)')
             console.log('')
-            console.log('示例:')
+            console.log('Example:')
             console.log('pnpm run swap-starknet-to-op 0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d 100 0x722d3c28fadCee0f1070C12C4d47F20DB5bfE82B 1 0x7F7Ac1507d9addC6b0b23872334F2a08bDc2Cd25')
             process.exit(1)
         }
 
         const [srcToken, makingAmountStr, dstToken, takingAmountStr, opUser] = args
 
-        // 验证参数
+        // Validate parameters
         const validation = validateParameters(srcToken, makingAmountStr, dstToken, takingAmountStr, opUser)
         if (!validation.isValid) {
-            console.error('❌ 参数验证失败:', validation.error)
+            console.error('❌ Parameter validation failed:', validation.error)
             process.exit(1)
         }
 
         const makingAmount = parseFloat(makingAmountStr)
         const takingAmount = parseFloat(takingAmountStr)
 
-        console.log('📋 交换参数:')
-        console.log(`  源Token (Starknet): ${srcToken}`)
-        console.log(`  源数量: ${makingAmount}`)
-        console.log(`  目标Token (OP): ${dstToken}`)
-        console.log(`  目标数量: ${takingAmount}`)
-        console.log(`  OP用户: ${opUser}`)
+        console.log('📋 Swap parameters:')
+        console.log(`  Source Token (Starknet): ${srcToken}`)
+        console.log(`  Source Amount: ${makingAmount}`)
+        console.log(`  Destination Token (OP): ${dstToken}`)
+        console.log(`  Destination Amount: ${takingAmount}`)
+        console.log(`  OP User: ${opUser}`)
         console.log('')
 
         const swapper = new StarknetToOpSwap()
@@ -507,47 +562,47 @@ async function main() {
 
         const result = await swapper.swapTokens(swapParams)
 
-        console.log('🎉 交换订单创建成功!')
-        console.log('订单哈希:', result.orderHash)
-        console.log('密钥:', result.secret)
+        console.log('🎉 Swap order created successfully!')
+        console.log('Order hash:', result.orderHash)
+        console.log('Secret:', result.secret)
 
     } catch (error) {
-        console.error('❌ 交换失败:', error)
+        console.error('❌ Swap failed:', error)
         process.exit(1)
     }
 }
 
-// 参数验证函数
+// Parameter validation function
 function validateParameters(srcToken: string, makingAmountStr: string, dstToken: string, takingAmountStr: string, opUser: string) {
-    // 验证地址格式
+    // Validate address format
     if (!isValidStarknetAddress(srcToken)) {
-        return { isValid: false, error: `无效的Starknet源token地址: ${srcToken}` }
+        return { isValid: false, error: `Invalid Starknet source token address: ${srcToken}` }
     }
 
     if (!isValidEthereumAddress(dstToken)) {
-        return { isValid: false, error: `无效的OP目标token地址: ${dstToken}` }
+        return { isValid: false, error: `Invalid OP destination token address: ${dstToken}` }
     }
 
     if (!isValidEthereumAddress(opUser)) {
-        return { isValid: false, error: `无效的OP用户地址: ${opUser}` }
+        return { isValid: false, error: `Invalid OP user address: ${opUser}` }
     }
 
-    // 验证数量
+    // Validate amounts
     const makingAmount = parseFloat(makingAmountStr)
     const takingAmount = parseFloat(takingAmountStr)
 
     if (isNaN(makingAmount) || makingAmount <= 0) {
-        return { isValid: false, error: `无效的源token数量: ${makingAmountStr}` }
+        return { isValid: false, error: `Invalid source token amount: ${makingAmountStr}` }
     }
 
     if (isNaN(takingAmount) || takingAmount <= 0) {
-        return { isValid: false, error: `无效的目标token数量: ${takingAmountStr}` }
+        return { isValid: false, error: `Invalid destination token amount: ${takingAmountStr}` }
     }
 
     return { isValid: true }
 }
 
-// 地址验证辅助函数
+// Address validation helper functions
 function isValidEthereumAddress(address: string): boolean {
     return /^0x[a-fA-F0-9]{40}$/.test(address)
 }
