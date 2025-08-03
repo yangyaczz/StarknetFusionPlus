@@ -1,4 +1,4 @@
-# cross-chain-resolver-example
+# Starknet <-> EVM Fustion+
 
 ## Installation
 
@@ -24,30 +24,19 @@ forge install
 
 To run tests you need to provide fork urls for Ethereum and Bsc
 
+swap starknet to evm
 ```shell
-SRC_CHAIN_RPC=ETH_FORK_URL DST_CHAIN_RPC=BNB_FORK_URL pnpm test
+pnpm run SNTOEVM <starknetToken> <amount1> <opToken> <amount2> <opUserAddress>
+
+pnpm run SNTOEVM 0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d 0.01 0x722d3c28fadCee0f1070C12C4d47F20DB5bfE82B 8 0x7F7Ac1507d9addC6b0b23872334F2a08bDc2Cd25
 ```
 
-### Public rpc
+swap evm to starknet
+```shell
+pnpm run EVMTOSN <opToken> <amount2> <starknetToken> <amount1> <tarkentUserAddress>
 
-| Chain    | Url                          |
-|----------|------------------------------|
-| Ethereum | https://eth.merkle.io        |
-| BSC      | wss://bsc-rpc.publicnode.com |
-
-## Test accounts
-
-### Available Accounts
-
+pnpm run EVMTOSN 0x722d3c28fadCee0f1070C12C4d47F20DB5bfE82B 8 0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d 1 0x060684D67EE65A3C3C41932cAeAD3d6B19c0738390d24924f172FFB416Cef3ae
 ```
-(0) 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" Owner of EscrowFactory
-(1) 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8" User
-(2) 0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a: "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC" Resolver
-```
-
-
-SRC_CHAIN_RPC=https://1rpc.io/eth DST_CHAIN_RPC=https://1rpc.io/bnb pnpm test
-
 
 
 
