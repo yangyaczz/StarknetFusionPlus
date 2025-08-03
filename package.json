@@ -6,7 +6,8 @@
   "scripts": {
     "test": "forge build && node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
     "lint": "eslint  \"tests/**/*.ts\"",
-    "swap": "tsx scripts/swap-op-to-starknet.ts" 
+    "EVMTOSN": "tsx scripts/swap-op-to-starknet.ts",
+    "SNTOEVM": "tsx scripts/swap-starknet-to-op.ts" 
   },
   "devDependencies": {
     "@1inch/eslint-config": "^v3.0.7",

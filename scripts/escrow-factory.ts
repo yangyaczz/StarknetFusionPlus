@@ -3,7 +3,7 @@ import * as Sdk from '@1inch/cross-chain-sdk'
 import EscrowFactoryContract from '../dist/contracts/EscrowFactory.sol/EscrowFactory.json'
 
 export class EscrowFactory {
-    private iface = new Interface(EscrowFactoryContract.abi)
+    iface = new Interface(EscrowFactoryContract.abi)
 
     constructor(
         private readonly provider: JsonRpcProvider,

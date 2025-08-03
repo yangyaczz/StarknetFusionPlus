@@ -16,7 +16,7 @@ import {TimelocksLib, Timelocks} from '../lib/cross-chain-swap/contracts/librari
 import {Address} from 'solidity-utils/contracts/libraries/AddressLib.sol';
 import {IEscrow} from '../lib/cross-chain-swap/contracts/interfaces/IEscrow.sol';
 import {ImmutablesLib} from '../lib/cross-chain-swap/contracts/libraries/ImmutablesLib.sol';
-
+import { IERC20 } from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 /**
  * @title Sample implementation of a Resolver contract for cross-chain swap.
  * @dev It is important when deploying an escrow on the source chain to send the safety deposit and deploy the escrow in the same
@@ -85,6 +85,7 @@ contract Resolver is Ownable {
         IBaseEscrow.Immutables calldata dstImmutables,
         uint256 srcCancellationTimestamp
     ) external payable onlyOwner {
+        IERC20(dstImmutables.token).approve(address(_FACTORY), dstImmutables.safetyDeposit);
         _FACTORY.createDstEscrow{value: msg.value}(dstImmutables, srcCancellationTimestamp);
     }
 

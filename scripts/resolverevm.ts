@@ -3,7 +3,7 @@ import * as Sdk from '@1inch/cross-chain-sdk'
 import Contract from '../dist/contracts/Resolver.sol/Resolver.json'
 
 export class ResolverEVM {
-    private readonly iface = new Interface(Contract.abi)
+    iface = new Interface(Contract.abi)
 
     constructor(
         public readonly srcAddress: string,
