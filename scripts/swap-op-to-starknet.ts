@@ -10,8 +10,10 @@ import {
 } from 'ethers'
 import { uint8ArrayToHex, UINT_40_MAX } from '@1inch/byte-utils'
 import { ethers } from 'ethers'
-import { hash, getChecksumAddress } from 'starknet'
 import { Wallet } from './wallet'
+
+import { RpcProvider, Contract, Account, ec, json, cairo, CallData, hash, getChecksumAddress } from 'starknet';
+import resolverABI from '../starknetABI/ResolverABI.json' with { type: "json" }
 
 import { EscrowFactory } from './escrow-factory'
 
@@ -31,22 +33,26 @@ const OP_CONFIG = {
 // Starknet 配置 - 使用chainId 99999表示非EVM链
 const STARKNET_CONFIG = {
     chainId: 99999, // 非EVM链标识
-    realChainId: 'SN_MAIN', // Starknet主网
-    rpcUrl: 'https://starknet-mainnet.public.blastapi.io/rpc/v0_7' // Starknet RPC URL
+    url: 'https://starknet-sepolia.blastapi.io/7153c233-d0cf-4ce5-997a-1d57f71635b6/rpc/v0_8',
 }
 
 // 用户和解析器私钥
 const USER_PRIVATE_KEY = process.env.PRIVATE_KEY_EVM_USER
 const RESOLVER_PRIVATE_KEY = process.env.PRIVATE_KEY_EVM_RESOLVER
 
+const RESOLVER_STARKNET_PRIVATE_KEY = process.env.PRIVATE_KEY_STARKNET_RESOLVER
+
 
 
 export class OpToStarknetSwap {
     private opProvider: JsonRpcProvider
+    private starknetProvider: RpcProvider
     private userWallet: Wallet
     private resolverWallet: Wallet
     private escrowFactory: string
     private resolver: string
+
+    private startnetResolverAccount: Account
 
     constructor() {
 
@@ -56,12 +62,16 @@ export class OpToStarknetSwap {
             staticNetwork: true
         })
 
+        this.starknetProvider = new RpcProvider({ nodeUrl: STARKNET_CONFIG.url, specVersion: '0.8.1' });
+
         this.userWallet = new Wallet(USER_PRIVATE_KEY as string, this.opProvider)
         this.resolverWallet = new Wallet(RESOLVER_PRIVATE_KEY as string, this.opProvider)
 
         // 这些地址需要预先部署
         this.escrowFactory = '0xa7bCb4EAc8964306F9e3764f67Db6A7af6DdF99A'
         this.resolver = '0x55e723eE06b4bF69734EDe8e4d0CC443D85BDF93'
+
+        this.startnetResolverAccount = new Account(this.starknetProvider, '0x048A6a340B41Ba1Be6e17F23881E924746aB7E84c05ff915F4eAe86890b78da1', RESOLVER_STARKNET_PRIVATE_KEY as string)
     }
 
 
@@ -130,6 +140,8 @@ export class OpToStarknetSwap {
 
         console.log(`[${OP_CONFIG.chainId}]`, `Order ${orderHash} filled for ${fillAmount} in tx ${orderFillHash}`)
 
+        //
+
 
         // get src escrow address and event
 
@@ -138,7 +150,7 @@ export class OpToStarknetSwap {
         const srcEscrowEvent = await opFactory.getSrcDeployEvent(srcDeployBlock)
 
         const dstImmutables = srcEscrowEvent[0]
-        const srcCancellation =  dstImmutables.timeLocks.toSrcTimeLocks().privateCancellation
+        const srcCancellation = dstImmutables.timeLocks.toSrcTimeLocks().privateCancellation
 
 
         const ESCROW_SRC_IMPLEMENTATION = await opFactory.getSourceImpl()
@@ -147,14 +159,93 @@ export class OpToStarknetSwap {
             ESCROW_SRC_IMPLEMENTATION
         )
 
+        // 再starknet上创建 dst essrow
+        let immutables = {
+            order_hash: BigInt(orderHash) % (2n ** 251n - 1n),
+            hash_lock: hash.computePoseidonHashOnElements([secret]),
+            maker: starknetUserAddress,
+            taker: this.startnetResolverAccount.address,
+            token: dstTokenAddress,
+            amount: cairo.uint256(order.takingAmount),
+            safety_deposit: cairo.uint256('0'),
+            timelocks: {
+                deployed_at: 0,
+                src_withdrawal: 10,
+                src_public_withdrawal: 120,
+                src_cancellation: 121,
+                src_public_cancellation: 122,
+                dst_withdrawal: 10,
+                dst_public_withdrawal: 100,
+                dst_cancellation: 101,
+            }
+        }
+
+        const result = await this.startnetResolverAccount.execute([
+            {
+                contractAddress: dstTokenAddress,
+                entrypoint: 'transfer',
+                calldata: [
+                    starknetResolverAddress,
+                    cairo.uint256(takingAmountBig.toString())
+                ]
+            }
+            ,
+            {
+                contractAddress: starknetResolverAddress,
+                entrypoint: 'deploy_dst',
+                calldata: CallData.compile({
+                    immutables: immutables,
+                    src_cancellation_timestamp: srcCancellation
+                }
+                )
+            }
+        ]
+        )
+
+        console.log('starknet dst create', result)
+        const txReceipt = await this.starknetProvider.waitForTransaction(result.transaction_hash)
+        let escrowDstAddress;
+
+        if (txReceipt.isSuccess()) {
+            const listEvents = txReceipt.value.events;
+
+            const targetKey = '0x252bcf5a90092533454ac4a06890ff6047c24aea8870f526e24da47fdfc3131';
+            const targetEvent = listEvents.find(event =>
+                event.keys && event.keys.includes(targetKey)
+            );
+        
+            if (targetEvent) {
+                const firstDataItem = targetEvent.data[0];
+                escrowDstAddress = firstDataItem;
+            }
+        }
+
+
+
 
         // wait for 11 seconds
         await new Promise(resolve => setTimeout(resolve, 11000))
+
+
         const { txHash: resolverWithdrawHash } = await this.resolverWallet.send(
-            resolverSrc.withdraw('src', srcEscrowAddress, secret+ '00', srcEscrowEvent[0])
+            resolverSrc.withdraw('src', srcEscrowAddress, secret + '00', srcEscrowEvent[0])
         )
 
+        const starknet_withdraw_result = await this.startnetResolverAccount.execute(
+            [
+                {
+                    contractAddress: escrowDstAddress,  //escrow
+                    entrypoint: 'withdraw',
+                    calldata: CallData.compile({
+                        secret: secret,
+                        immutables: immutables
+                    })
+                }
+            ]
+        )
 
+        await this.starknetProvider.waitForTransaction(starknet_withdraw_result.transaction_hash)
+        console.log('starknet withdraw', starknet_withdraw_result)
 
 
         return {
@@ -253,6 +344,7 @@ export class OpToStarknetSwap {
             dstChain: 'Starknet'
         })
 
+
         return order
     }
 
@@ -310,9 +402,9 @@ async function main() {
             '0x722d3c28fadCee0f1070C12C4d47F20DB5bfE82B', // OP stFusion
             '0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d', // Starknet strk
             100, // 100 stFusion
-            10,  // 10 strk
+            1,  // 10 strk
             '0x060684D67EE65A3C3C41932cAeAD3d6B19c0738390d24924f172FFB416Cef3ae', // Starknet user address
-            '0x047578c716eb4724097f9ca85e30997a4655b0ce44f9259e19e6fd81bb7a72b9'  // Starknet resolver ??
+            '0x4184c728ca0c9cfbc0627603013b1850f1727c1e09d3a1d6090dee05d68f63e'  // Starknet resolver ??
         )
 
         console.log('🎉 交换订单创建成功!')
