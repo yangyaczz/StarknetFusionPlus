@@ -22,10 +22,10 @@ let accountUser = new Account(provider, userWaller, pk2)
 
 
 let making_amount = cairo.uint256('800000000')
-let safety_deposit = cairo.uint256('111110000')
+let safety_deposit = cairo.uint256('111110')
 
 let immutables = {
-    order_hash: '0x123231434432299222',
+    order_hash: '0x1232314432234432299222',
     hash_lock: '0x7450a1480e1e264af95eda7d2b17e337dfaf5516bfd789ec0431884cdb63e0d',
     maker: userWaller,
     taker: resolverContractAddress,
