@@ -1,4 +1,4 @@
-# Cross-Chain Resolver Example
+# Starknet <-> EVM Fusion+
 
 A cross-chain token swap implementation between Starknet and EVM-compatible chains, enabling seamless token exchanges across different blockchain networks.
 
