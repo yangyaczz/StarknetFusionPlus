@@ -33,10 +33,10 @@ let account = new Account(provider, resolverWaller, pk)
 
 
 let immutables = {
-    order_hash: '0x1231212322222222222222',
+    order_hash: '0x1231212322221122222222',
     hash_lock: '0x7450a1480e1e264af95eda7d2b17e337dfaf5516bfd789ec0431884cdb63e0d',
     maker: '0x060684D67EE65A3C3C41932cAeAD3d6B19c0738390d24924f172FFB416Cef3ae',
-    taker: '0x048A6a340B41Ba1Be6e17F23881E924746aB7E84c05ff915F4eAe86890b78da1',
+    taker: '0x4184c728ca0c9cfbc0627603013b1850f1727c1e09d3a1d6090dee05d68f63e',
     token: '0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d',
     amount: cairo.uint256('100000'),
     safety_deposit: cairo.uint256('100000'),
@@ -105,9 +105,10 @@ if (txReceipt.isSuccess()) {
 
         const result2 = await account.execute([
             {
-                contractAddress: firstDataItem,  //escrow
-                entrypoint: 'withdraw',
+                contractAddress: '0x4184c728ca0c9cfbc0627603013b1850f1727c1e09d3a1d6090dee05d68f63e',  //escrow
+                entrypoint: 'withdraw_dst',
                 calldata: CallData.compile({
+                    escrow: firstDataItem,
                     secret: '0x123456',
                     immutables: immutables
                 })
