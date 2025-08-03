@@ -468,20 +468,20 @@ export class StarknetToOpSwap {
         // Store original order and amount info as class properties to avoid recreation
         const starknetImmutables = this.lastStarknetImmutables; // Need to store this in the class
 
-        // const withdrawSrcResult = await this.wallets.starknetResolver.execute([{
-        //     contractAddress: CONFIG.contracts.starknetResolverContract,
-        //     entrypoint: 'withdraw_src',
-        //     calldata: CallData.compile({
-        //         escrow: srcEscrowAddress,
-        //         secret: secret,
-        //         immutables: starknetImmutables
-        //     })
-        // }]);
+        const withdrawSrcResult = await this.wallets.starknetResolver.execute([{
+            contractAddress: CONFIG.contracts.starknetResolverContract,
+            entrypoint: 'withdraw_src',
+            calldata: CallData.compile({
+                escrow: srcEscrowAddress,
+                secret: secret,
+                immutables: starknetImmutables
+            })
+        }]);
 
-        // await this.providers.starknet.waitForTransaction(withdrawSrcResult.transaction_hash);
-        // const starknetWithdrawTxLink = getExplorerLink(CONFIG.starknet.chainId, withdrawSrcResult.transaction_hash)
+        await this.providers.starknet.waitForTransaction(withdrawSrcResult.transaction_hash);
+        const starknetWithdrawTxLink = getExplorerLink(CONFIG.starknet.chainId, withdrawSrcResult.transaction_hash)
         console.log('✅ Starknet src withdraw completed:')
-        // console.log(`🔗 ${starknetWithdrawTxLink}`)
+        console.log(`🔗 ${starknetWithdrawTxLink}`)
     }
 
     private async checkAndApproveStarknetTokens(tokenAddress: string, amount: any) {
