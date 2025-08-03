@@ -25,7 +25,7 @@ let making_amount = cairo.uint256('800000000')
 let safety_deposit = cairo.uint256('111110')
 
 let immutables = {
-    order_hash: '0x1232314432234432299222',
+    order_hash: '0x122333333444r53232299222',
     hash_lock: '0x7450a1480e1e264af95eda7d2b17e337dfaf5516bfd789ec0431884cdb63e0d',
     maker: userWaller,
     taker: resolverContractAddress,
@@ -45,7 +45,7 @@ let immutables = {
 }
 
 let order = {
-    salt: '0x12323123',
+    salt: '0x123333223123',
     maker: userWaller,
     receiver: '0x7F7Ac1507d9addC6b0b23872334F2a08bDc2Cd25',
     maker_asset: '0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d',  //strk

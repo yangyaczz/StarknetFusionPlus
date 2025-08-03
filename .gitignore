@@ -136,6 +136,4 @@ cache
 
 .npmrc
 
-contracts/lib
-
 broadcast
