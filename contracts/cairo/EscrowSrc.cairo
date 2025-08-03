@@ -72,9 +72,9 @@ pub mod EscrowSrc {
     #[abi(embed_v0)]
     impl EscrowSrc of super::IEscrowSrc<ContractState> {
         fn withdraw(ref self: ContractState, secret: felt252, immutables: Immutables) {
-            // self._only_taker(immutables);
-            // self._only_after(immutables.timelocks.src_withdrawal + immutables.timelocks.deployed_at);
-            // self._only_before(immutables.timelocks.src_cancellation + immutables.timelocks.deployed_at);
+            self._only_taker(immutables);
+            self._only_after(immutables.timelocks.src_withdrawal + immutables.timelocks.deployed_at);
+            self._only_before(immutables.timelocks.src_cancellation + immutables.timelocks.deployed_at);
 
             self._withdraw_to(secret, get_caller_address(), immutables);
         }

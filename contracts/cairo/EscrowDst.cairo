@@ -66,9 +66,9 @@ pub mod EscrowDst {
     #[abi(embed_v0)]
     impl EscrowDst of super::IEscrowDst<ContractState> {
         fn withdraw(ref self: ContractState, secret: felt252, immutables: Immutables) {
-            // self._only_taker(immutables);
-            // self._only_after(immutables.timelocks.dst_withdrawal + immutables.timelocks.deployed_at);
-            // self._only_before(immutables.timelocks.dst_cancellation + immutables.timelocks.deployed_at);
+            self._only_taker(immutables);
+            self._only_after(immutables.timelocks.dst_withdrawal + immutables.timelocks.deployed_at);
+            self._only_before(immutables.timelocks.dst_cancellation + immutables.timelocks.deployed_at);
 
             self._withdraw(secret, immutables);
         }

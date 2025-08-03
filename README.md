@@ -1,46 +1,98 @@
-# Starknet <-> EVM Fustion+
+# Cross-Chain Resolver Example
+
+A cross-chain token swap implementation between Starknet and EVM-compatible chains, enabling seamless token exchanges across different blockchain networks.
+
+## Overview
+
+This project demonstrates a cross-chain atomic swap mechanism that allows users to exchange tokens between Starknet and EVM chains (like Optimism) using escrow contracts and a resolver system.
+
+## Features
+
+- ✅ Bi-directional swaps (Starknet ↔ EVM)
+- ✅ Atomic transactions with escrow protection(HLTC)
+- ✅ Cairo smart contracts for Starknet integration
+- ✅ Automated secret-based resolution system
+- ✅ Support for multiple EVM chains
 
 ## Installation
 
-Install example deps
+### Prerequisites
 
-```shell
+- Node.js and pnpm
+- [Foundry](https://book.getfoundry.sh/getting-started/installation) for smart contract development
+
+### Setup
+
+1. Install project dependencies:
+```bash
 pnpm install
 ```
 
-Install [foundry](https://book.getfoundry.sh/getting-started/installation)
-
-```shell
+2. Install Foundry:
+```bash
 curl -L https://foundry.paradigm.xyz | bash
 ```
 
-Install contract deps
-
-```shell
+3. Install contract dependencies:
+```bash
 forge install
 ```
 
-## Running
+## Usage
 
-To run tests you need to provide fork urls for Ethereum and Bsc
+### Starknet to EVM Swap
 
-swap starknet to evm
-```shell
-pnpm run SNTOEVM <starknetToken> <amount1> <opToken> <amount2> <opUserAddress>
+Swap tokens from Starknet to an EVM chain (e.g., Optimism):
 
+```bash
+pnpm run SNTOEVM <starknetToken> <sourceAmount> <evmToken> <destinationAmount> <evmUserAddress>
+```
+
+**Example:**
+```bash
 pnpm run SNTOEVM 0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d 0.01 0x722d3c28fadCee0f1070C12C4d47F20DB5bfE82B 8 0x7F7Ac1507d9addC6b0b23872334F2a08bDc2Cd25
 ```
 
-swap evm to starknet
-```shell
-pnpm run EVMTOSN <opToken> <amount2> <starknetToken> <amount1> <tarkentUserAddress>
+### EVM to Starknet Swap
 
+Swap tokens from an EVM chain to Starknet:
+
+```bash
+pnpm run EVMTOSN <evmToken> <sourceAmount> <starknetToken> <destinationAmount> <starknetUserAddress>
+```
+
+**Example:**
+```bash
 pnpm run EVMTOSN 0x722d3c28fadCee0f1070C12C4d47F20DB5bfE82B 8 0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d 1 0x060684D67EE65A3C3C41932cAeAD3d6B19c0738390d24924f172FFB416Cef3ae
 ```
 
+## Smart Contracts
 
-## Actual exchange
+### Cairo Contracts (Starknet)
+
+Cairo smart contracts are located in `contracts/cairo/`:
+
+- `EscrowSrc.cairo` - Source escrow contract for Starknet
+- `EscrowDst.cairo` - Destination escrow contract for Starknet  
+- `EscrowFactory.cairo` - Factory contract for creating escrow instances
+- `Resolver` - Resolver contract for resolver
+
+### Solidity Contracts (EVM)
+
+EVM-compatible contracts are in `contracts/src/`:
+
+- `Resolver.sol` - Main resolver contract
+
+## Example Transaction Flow
+
+Here's a successful EVM to Starknet swap example:
+
 ```
+yycz@yyczdeMacBook-Pro cross-chain-resolver-example % pnpm run EVMTOSN 0x722d3c28fadCee0f1070C12C4d47F20DB5bfE82B 8 0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d 1 0x060684D67EE65A3C3C41932cAeAD3d6B19c0738390d24924f172FFB416Cef3ae
+
+> cross-chain-resolver-example@1.0.0 EVMTOSN /Users/yycz/ethglobal/1inch/cross-chain-resolver-example
+> tsx scripts/swap-op-to-starknet.ts 0x722d3c28fadCee0f1070C12C4d47F20DB5bfE82B 8 0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d 1 0x060684D67EE65A3C3C41932cAeAD3d6B19c0738390d24924f172FFB416Cef3ae
+
 📋 Swap parameters:
   Source Token: 0x722d3c28fadCee0f1070C12C4d47F20DB5bfE82B
   Source Amount: 8
@@ -167,4 +219,13 @@ DST Escrow Address: 0x59f8c0ba0ff6c723054dabcbea84e2d2d9d162dc
 🎉 Swap order created successfully!
 Order hash: 0x15f44cd02df99092feafa016c6589fe963b3ea01189a0aa8e09a12adb0865d8
 Secret: 0x04063aec91e52e33e19b4abdb4cd323d77e2ffa1ac7e11d2b4f9355136fbdb
+```
+
+## Development
+
+### Testing
+
+Run the test suite:
+```bash
+forge test
 ```
